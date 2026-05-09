@@ -1,7 +1,7 @@
 ---
 name: llm-output-audit
 description: Use when auditing long-form LLM-generated articles, technical reports, or research notes for factual accuracy, hallucination risk, internal consistency, source quality, and actionable edit suggestions.
-version: 1.7.0
+version: 1.7.1
 author: Hermes Agent
 license: MIT
 metadata:
@@ -56,14 +56,17 @@ Article text
 **What it catches well:**
 - Specific dates ("released in April 2025")
 - Specific numbers ("97M downloads", "10,000+ servers")
-- Named events and their outcomes ("ACP merged into A2A")
+- Named events and outcomes ("ACP merged into A2A")
 - Attribution ("Google's A2A", "IBM's ACP")
-- Causal/logical claims ("because X, therefore Y")
+- Project/package status ("repo is archived", "package requires Python 3.10+")
+- Feature/capability claims ("tool can index local Markdown", "library supports streaming")
+- Requirement/compatibility claims ("requires PostgreSQL", "works with OpenAI-compatible APIs")
+- Causal/comparative claims when evidence exists ("because X, therefore Y", "A is faster than B")
 
 **What it cannot guarantee:**
-- Opinions and interpretations (not verifiable by search)
+- Pure opinions and taste judgments; it can flag weak support or overconfidence, not prove subjective claims true
 - Very recent events (past few weeks, search lag)
-- Niche topics with no web coverage
+- Niche topics with no web/docs/source coverage
 
 ---
 

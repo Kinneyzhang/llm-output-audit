@@ -76,6 +76,24 @@ Recommended defaults:
 - Research report / usage guide / technical comparison: `draft`
 - Blog post / README / public docs / important report: `full`
 
+## What kinds of claims can it audit?
+
+The implementation currently uses a compact set of claim labels — `[DATE]`, `[NUMBER]`, `[EVENT]`, `[ATTR]`, `[STATUS]`, and `[CAUSAL]` — but those labels are broader than dates and numbers.
+
+LLM Output Audit can audit many information claims as long as they can be tied to evidence:
+
+| Claim class | Example | How it is handled |
+| --- | --- | --- |
+| Numeric / date claims | “Package X has 1M weekly downloads”, “Project Y was released in 2025” | Routed to package registries, GitHub releases, web announcements, etc. |
+| Feature / capability claims | “Library X supports streaming responses”, “Tool Y can index local Markdown files” | Routed to official docs, README, source code, issues, package docs, or project website. Usually represented as `[STATUS]` or `[ATTR]`. |
+| Requirement / constraint claims | “This package requires Python 3.10+”, “The service needs PostgreSQL” | Routed to package metadata, installation docs, README, pyproject/package.json, or deployment docs. Usually represented as `[STATUS]`. |
+| Support / compatibility claims | “Framework X supports Vite”, “Model Y works with OpenAI-compatible APIs” | Routed to official docs, changelog, examples, integration docs, or source code. |
+| Process / workflow claims | “The tool first extracts claims and then routes evidence sources” | Routed to this repository’s source code, documentation, or examples. |
+| Comparative claims | “A is faster/more reliable than B” | Routed to benchmarks, papers, docs, or independent evaluations. Often rated `⚠️ UNCERTAIN` unless the evidence is strong. |
+| Opinion-like claims | “This is the best option for most teams” | Not treated as objectively true/false. The audit checks whether the claim is supported, overconfident, missing caveats, or should be rewritten as an opinion. |
+
+So the tool is not limited to numbers and dates. The important boundary is **verifiability**: if a claim can be checked against documentation, metadata, source code, benchmarks, papers, or reliable commentary, it can be audited. If it is purely subjective, the tool can still flag overconfidence and suggest more careful wording, but it cannot prove the opinion “true”.
+
 ## Source Router
 
 Different facts have different authoritative sources. LLM Output Audit asks the source that owns the fact.
@@ -85,10 +103,14 @@ Different facts have different authoritative sources. LLM Output Audit asks the 
 | GitHub stars, releases, project activity | GitHub API |
 | npm package version or downloads | npm registry / npm downloads API |
 | Python package version or release date | PyPI API |
+| Package features or capabilities | Official docs, README, source code, examples, issue discussions |
+| Runtime requirements or installation constraints | `pyproject.toml`, `package.json`, package metadata, installation docs |
+| API compatibility or integration support | Official docs, changelog, examples, source code, release notes |
 | Paper metadata, publication date | arXiv API |
 | Paper citations, venue, authors | Semantic Scholar API |
 | Organization, person, historical background | Wikipedia / primary web sources |
 | Current announcements, ecosystem news | Tavily / DuckDuckGo web search |
+| Comparative or evaluative claims | Benchmarks, papers, official docs, independent evaluations |
 | User-curated local knowledge | Optional LLM Wiki |
 
 Example:
