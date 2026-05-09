@@ -64,6 +64,8 @@ jobs:
           assert audit.github_repo_candidates('Claude Code has 122k GitHub Stars') == ['anthropics/claude-code']
           assert audit.github_repo_candidates('Codex has 81k GitHub Stars') == ['openai/codex']
           assert audit.github_repo_candidates('Khoj has 34k GitHub Stars') == ['khoj-ai/khoj']
+          assert audit.github_repo_candidates('GPT Researcher GitHub星标数为26.9k') == ['assafelovic/gpt-researcher']
+          assert audit.github_repo_candidates('STORM GitHub星标数为28.2k') == ['stanford-oval/storm']
 
           for path in [
               'README.md',

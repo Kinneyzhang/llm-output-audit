@@ -484,6 +484,9 @@ KNOWN_GITHUB_REPOS = {
     "hermes agent": "NousResearch/hermes-agent",
     "claude code": "anthropics/claude-code",
     "codex": "openai/codex",
+    "gpt researcher": "assafelovic/gpt-researcher",
+    "gpt-researcher": "assafelovic/gpt-researcher",
+    "storm": "stanford-oval/storm",
 }
 
 
@@ -866,7 +869,9 @@ EXTRACT_SYSTEM = textwrap.dedent("""
     - Exact: preserve the wording from the article, do not paraphrase
     - No opinions, recommendations, or predictions
     - No trivial background facts
-    - No bare year strings unless tied to a specific claim
+    - No bare year/date/number strings. A numeric claim must include the subject, metric, and unit/context.
+    - Bad: `[NUMBER] 34.4k`; Good: `[NUMBER] Khoj has 34.4k GitHub stars`.
+    - Bad: `[DATE] 2026-05-08`; Good: `[DATE] The article was written on 2026-05-08` only if publication date itself is relevant.
     - Target: 10–25 claims for a 1500–3000 word article
 """).strip()
 
@@ -956,7 +961,7 @@ def github_stars_override(text: str, claim_type: str, evidence_results: list[dic
     This prevents generic web snippets from overruling canonical repo metadata.
     """
     lower = text.lower()
-    if claim_type != "NUMBER" or not any(k in lower for k in ["github stars", "github star", "stars", "stargazers"]):
+    if claim_type != "NUMBER" or not any(k in lower for k in ["github stars", "github star", "stars", "stargazers", "星标", "star 数", "star数"]):
         return None
     github_ev = next((r for r in evidence_results if r.get("source") == "github" and r.get("structured_data", {}).get("stars") is not None), None)
     if not github_ev:
