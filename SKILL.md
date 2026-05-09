@@ -1,7 +1,7 @@
 ---
 name: llm-output-audit
 description: Use when auditing long-form LLM-generated articles, technical reports, or research notes for factual accuracy, hallucination risk, internal consistency, source quality, and actionable edit suggestions.
-version: 1.8.0
+version: 1.9.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -392,6 +392,10 @@ The router has two modes:
 1. **Rule router** — default. Fast, deterministic, zero extra tokens.
 2. **LLM router** — optional via `--llm-router`. Useful for ambiguous claims, but slower and more expensive.
 
+For GitHub star-count claims, prefer deterministic GitHub API metadata over generic web snippets. If the repo is known or explicitly linked, the script can apply a deterministic `github_stars_api` override instead of asking the LLM to judge noisy search results.
+
+Use `--trace-log path.jsonl` when debugging the auditor itself. The trace records source routing, concrete source queries, structured API results, evidence ranking, deterministic overrides, and final ratings.
+
 ---
 
 ## RAG vs This Skill
@@ -415,8 +419,11 @@ python3 ~/.hermes/skills/research/llm-output-audit/scripts/fact_check.py \
     --output /path/to/report.md \
     --mode draft \
     --workers 6 \
-    --source-workers 4
+    --source-workers 4 \
+    --trace-log /path/to/report-trace.jsonl
 ```
+
+`--trace-log` is optional but recommended when improving the skill. It writes JSONL events showing each route, source query, structured result, evidence selection, deterministic override, and rating decision.
 
 Optional local knowledge-base enhancement:
 
@@ -437,10 +444,12 @@ The script:
 6. Uses a deterministic consistency risk gate to decide whether internal contradiction checking is needed; supports `--skip-consistency` and `--force-consistency`
 7. Scores evidence by authority / directness / freshness and sorts stronger evidence first
 8. Fetches generic web URLs and checks whether claim keywords appear in the actual page (`🔗✓` marker); skips fetch for structured API evidence
-9. Calls the LLM to rate each claim with evidence and an actionable edit suggestion
-10. Runs conditional adversarial second-pass review on ❌ claims, skipping it when high-authority structured evidence is sufficient
-11. Writes the report with audit mode, selected/total claim count, `Routed sources`, `Source quality`, and `Edit Suggestions` sections
-12. For agent-generated durable outputs, apply safe corrections and wording changes before final delivery; for user-supplied existing files, report first and only modify when explicitly asked
+9. Applies deterministic overrides for source-owned facts when available, e.g. GitHub star-count claims from GitHub API metadata
+10. Calls the LLM to rate each remaining claim with evidence and an actionable edit suggestion
+11. Runs conditional adversarial second-pass review on ❌ claims, skipping it when high-authority structured evidence is sufficient
+12. Writes the report with audit mode, selected/total claim count, `Routed sources`, `Source quality`, and `Edit Suggestions` sections
+13. Optionally writes a detailed JSONL execution trace with `--trace-log`
+14. For agent-generated durable outputs, apply safe corrections and wording changes before final delivery; for user-supplied existing files, report first and only modify when explicitly asked
 
 See `scripts/fact_check.py` for full implementation.
 

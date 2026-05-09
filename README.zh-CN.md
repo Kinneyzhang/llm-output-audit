@@ -265,6 +265,20 @@ python3 scripts/fact_check.py \
   --dry-run
 ```
 
+### 写出详细执行 trace
+
+调试审计器本身时使用 `--trace-log`。它会写 JSONL 事件，记录 claim 抽取、模式选择、source routing、具体 source query、结构化 API 结果、证据排序、确定性 override、最终 rating。
+
+```bash
+python3 scripts/fact_check.py \
+  --file article.md \
+  --output article-audit.md \
+  --mode full \
+  --trace-log article-audit-trace.jsonl
+```
+
+这对排查 `GitHub Stars` 这类 claim 特别有用：可以直接看到它到底有没有走 GitHub API metadata，还是被通用网页搜索 snippet 污染。trace 会自动脱敏 secrets。
+
 ## CLI 参数
 
 ```text
@@ -281,6 +295,7 @@ python3 scripts/fact_check.py \
 --dry-run                      只抽取 claims。
 --no-fetch                     跳过网页原文抓取。
 --llm-router                   模糊场景下用 LLM 优化 source routing。
+--trace-log PATH               写出详细 JSONL 执行 trace，方便调试流程。
 ```
 
 ## 示例输出

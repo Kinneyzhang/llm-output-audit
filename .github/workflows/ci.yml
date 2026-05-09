@@ -60,6 +60,11 @@ jobs:
               assert isinstance(score, int)
               assert isinstance(reasons, list)
 
+          assert audit.github_repo_candidates('Hermes Agent has 140k GitHub Stars') == ['NousResearch/hermes-agent']
+          assert audit.github_repo_candidates('Claude Code has 122k GitHub Stars') == ['anthropics/claude-code']
+          assert audit.github_repo_candidates('Codex has 81k GitHub Stars') == ['openai/codex']
+          assert audit.github_repo_candidates('Khoj has 34k GitHub Stars') == ['khoj-ai/khoj']
+
           for path in [
               'README.md',
               'README.zh-CN.md',

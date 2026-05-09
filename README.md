@@ -265,6 +265,20 @@ python3 scripts/fact_check.py \
   --dry-run
 ```
 
+### Write a detailed execution trace
+
+Use `--trace-log` when debugging the auditor itself. It writes JSONL events for claim extraction, mode selection, source routing, concrete source queries, structured API results, evidence ranking, deterministic overrides, and final ratings.
+
+```bash
+python3 scripts/fact_check.py \
+  --file article.md \
+  --output article-audit.md \
+  --mode full \
+  --trace-log article-audit-trace.jsonl
+```
+
+This is especially useful when checking whether a claim such as `GitHub Stars` was resolved through GitHub API metadata or polluted by generic web-search snippets. Secrets are redacted from trace events.
+
 ## CLI reference
 
 ```text
@@ -281,6 +295,7 @@ python3 scripts/fact_check.py \
 --dry-run                      Extract claims only.
 --no-fetch                     Skip source page fetching.
 --llm-router                   Use LLM to refine source routing when ambiguous.
+--trace-log PATH               Write detailed JSONL execution trace for debugging.
 ```
 
 ## Example output

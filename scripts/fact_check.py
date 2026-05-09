@@ -54,6 +54,47 @@ def load_env() -> None:
 load_env()
 
 
+# ── Trace logging ─────────────────────────────────────────────────────────────
+TRACE_LOG_PATH: Path | None = None
+
+
+def sanitize_for_trace(value):
+    """Make trace events JSON-serializable and avoid leaking secrets."""
+    if isinstance(value, dict):
+        clean = {}
+        for k, v in value.items():
+            lk = str(k).lower()
+            if any(s in lk for s in ["key", "token", "secret", "password", "authorization"]):
+                clean[k] = "[REDACTED]"
+            else:
+                clean[k] = sanitize_for_trace(v)
+        return clean
+    if isinstance(value, list):
+        return [sanitize_for_trace(v) for v in value]
+    if isinstance(value, tuple):
+        return [sanitize_for_trace(v) for v in value]
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, str):
+        # Avoid very large JSONL files while preserving enough context to debug.
+        return value if len(value) <= 2000 else value[:2000] + "…[truncated]"
+    return value
+
+
+def trace(event: str, **data) -> None:
+    """Append a structured JSONL trace event when --trace-log is enabled."""
+    if not TRACE_LOG_PATH:
+        return
+    payload = {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "event": event,
+        **sanitize_for_trace(data),
+    }
+    TRACE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with TRACE_LOG_PATH.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 def truncate(text: str, n: int = 500) -> str:
     text = re.sub(r"\s+", " ", text or "").strip()
@@ -431,35 +472,85 @@ def source_tavily_web(text: str, claim_type: str) -> list[dict]:
         "STATUS": f"{text} current status 2026 official",
         "CAUSAL": text,
     }
-    return web_search(queries.get(claim_type, text), n=3)
+    query = queries.get(claim_type, text)
+    trace("source_query", source="tavily_web", claim_type=claim_type, claim=text, query=query)
+    return web_search(query, n=3)
+
+
+KNOWN_GITHUB_REPOS = {
+    # High-value aliases from the agent-tool ecosystem. These make GitHub
+    # metadata checks deterministic instead of relying on fuzzy repo search.
+    "khoj": "khoj-ai/khoj",
+    "hermes agent": "NousResearch/hermes-agent",
+    "claude code": "anthropics/claude-code",
+    "codex": "openai/codex",
+}
+
+
+def github_repo_candidates(text: str) -> list[str]:
+    """Return likely GitHub repos for a claim, preferring deterministic aliases."""
+    repos: list[str] = []
+    lower = text.lower()
+
+    # Direct repo URL is best.
+    for repo in re.findall(r"github\.com/([\w.-]+/[\w.-]+)", text, re.I):
+        repos.append(repo.strip("/"))
+
+    # Known project aliases are second-best and prevent search-noise failures for
+    # claims like "Hermes Agent has 140k GitHub Stars".
+    for alias, repo in KNOWN_GITHUB_REPOS.items():
+        if alias in lower:
+            repos.append(repo)
+
+    if repos:
+        seen = []
+        for repo in repos:
+            if repo not in seen:
+                seen.append(repo)
+        trace("github_repo_resolved", claim=text, method="direct_or_alias", repos=seen)
+        return seen
+
+    # Fallback: query GitHub Search with claim-noise removed. Do not include star
+    # counts or words like "has"; they hurt repository search relevance.
+    q = re.sub(r"\b\d+(?:\.\d+)?\s*[kKmMbB]?\b", " ", text)
+    q = re.sub(r"\b(has|have|github|stars?|starred|stargazers?)\b", " ", q, flags=re.I)
+    q = re.sub(r"[^\w\s./-]", " ", q)
+    q = re.sub(r"\s+", " ", q).strip()[:120]
+    if not q:
+        trace("github_repo_resolved", claim=text, method="fallback_empty_query", repos=[])
+        return []
+    trace("source_query", source="github", claim=text, query=q, api="search/repositories")
+    data = request_json("GET", "https://api.github.com/search/repositories", params={"q": q, "per_page": 3}, timeout=15)
+    if isinstance(data, dict):
+        repos = [item.get("full_name") for item in data.get("items", []) if item.get("full_name")]
+        trace("github_repo_resolved", claim=text, method="github_search", query=q, repos=repos)
+        return repos
+    trace("github_repo_resolved", claim=text, method="github_search_failed", query=q, repos=[])
+    return []
 
 
 def source_github(text: str, claim_type: str) -> list[dict]:
-    # Direct repo URL is best.
-    m = re.search(r"github\.com/([\w.-]+/[\w.-]+)", text, re.I)
-    repos = []
-    if m:
-        repos.append(m.group(1).strip("/"))
-    else:
-        q = re.sub(r"[^\w\s./-]", " ", text)[:160]
-        data = request_json("GET", "https://api.github.com/search/repositories", params={"q": q, "per_page": 3}, timeout=15)
-        if isinstance(data, dict):
-            repos.extend([item.get("full_name") for item in data.get("items", []) if item.get("full_name")])
-
+    repos = github_repo_candidates(text)
     out = []
     for full_name in repos[:3]:
+        trace("source_query", source="github", claim=text, repo=full_name, api="repos/{owner}/{repo}")
         repo = request_json("GET", f"https://api.github.com/repos/{full_name}", timeout=15)
         if isinstance(repo, dict) and repo.get("full_name"):
             snippet = (
                 f"Repo {repo.get('full_name')} has {repo.get('stargazers_count')} stars, "
                 f"created_at={repo.get('created_at')}, pushed_at={repo.get('pushed_at')}, "
-                f"description={repo.get('description')}"
+                f"archived={repo.get('archived')}, description={repo.get('description')}"
             )
-            out.append(result("github", repo.get("full_name", ""), repo.get("html_url", ""), snippet, "high", {"repo": repo.get("full_name"), "stars": repo.get("stargazers_count"), "created_at": repo.get("created_at"), "pushed_at": repo.get("pushed_at"), "license": (repo.get("license") or {}).get("spdx_id")}))
+            structured = {"repo": repo.get("full_name"), "stars": repo.get("stargazers_count"), "created_at": repo.get("created_at"), "pushed_at": repo.get("pushed_at"), "archived": repo.get("archived"), "license": (repo.get("license") or {}).get("spdx_id")}
+            trace("source_result", source="github", claim=text, repo=full_name, structured_data=structured, url=repo.get("html_url", ""), snippet=snippet)
+            out.append(result("github", repo.get("full_name", ""), repo.get("html_url", ""), snippet, "high", structured))
+            trace("source_query", source="github_releases", claim=text, repo=full_name, api="repos/{owner}/{repo}/releases/latest")
             rel = request_json("GET", f"https://api.github.com/repos/{full_name}/releases/latest", timeout=15)
             if isinstance(rel, dict) and rel.get("html_url"):
                 rs = f"Latest release {rel.get('tag_name')} published_at={rel.get('published_at')} name={rel.get('name')}"
-                out.append(result("github_releases", f"{full_name} latest release", rel.get("html_url", ""), rs, "high", {"repo": full_name, "latest_release": rel.get("tag_name"), "published_at": rel.get("published_at")}))
+                rel_structured = {"repo": full_name, "latest_release": rel.get("tag_name"), "published_at": rel.get("published_at")}
+                trace("source_result", source="github_releases", claim=text, repo=full_name, structured_data=rel_structured, url=rel.get("html_url", ""), snippet=rs)
+                out.append(result("github_releases", f"{full_name} latest release", rel.get("html_url", ""), rs, "high", rel_structured))
     return out[:4]
 
 
@@ -684,15 +775,22 @@ SOURCE_FUNCTIONS = {
 
 def gather_evidence(text: str, claim_type: str, wiki_path: Path | None = None, use_llm_router: bool = False, use_wiki: bool = False, max_sources: int = 4, source_workers: int = 4) -> tuple[list[str], list[dict]]:
     routed = route_sources(claim_type, text, use_llm_router=use_llm_router, use_wiki=use_wiki, max_sources=max_sources)
+    trace("route_sources", claim=text, claim_type=claim_type, routed_sources=routed, use_llm_router=use_llm_router, use_wiki=use_wiki, max_sources=max_sources)
     def call_source(source_name: str) -> list[dict]:
+        trace("source_call_start", claim=text, claim_type=claim_type, source=source_name)
         try:
             if source_name == "llm_wiki":
                 if use_wiki and wiki_path and wiki_path.exists():
-                    return source_llm_wiki(text, claim_type, wiki_path)
-                return []
-            fn = SOURCE_FUNCTIONS.get(source_name)
-            return fn(text, claim_type) if fn else []
+                    results = source_llm_wiki(text, claim_type, wiki_path)
+                else:
+                    results = []
+            else:
+                fn = SOURCE_FUNCTIONS.get(source_name)
+                results = fn(text, claim_type) if fn else []
+            trace("source_call_end", claim=text, claim_type=claim_type, source=source_name, result_count=len(results), results=results)
+            return results
         except Exception as exc:
+            trace("source_call_error", claim=text, claim_type=claim_type, source=source_name, error_type=type(exc).__name__, error=str(exc))
             return [result(source_name, f"{source_name} error", "", f"Source failed: {type(exc).__name__}", "low")]
 
     all_results: list[dict] = []
@@ -712,7 +810,9 @@ def gather_evidence(text: str, claim_type: str, wiki_path: Path | None = None, u
             seen.add(key)
             deduped.append(r)
     deduped.sort(key=lambda r: r.get("evidence_score", 0), reverse=True)
-    return routed, deduped[:10]
+    selected = deduped[:10]
+    trace("evidence_selected", claim=text, claim_type=claim_type, routed_sources=routed, total_raw_results=len(all_results), selected_count=len(selected), selected_results=selected)
+    return routed, selected
 
 
 # ── Phase 0: Internal consistency check ──────────────────────────────────────
@@ -850,6 +950,53 @@ def should_run_consistency(article: str, claims: list[dict], *, skip: bool = Fal
     return risk >= 3, risk, reasons
 
 
+def github_stars_override(text: str, claim_type: str, evidence_results: list[dict]) -> dict | None:
+    """Deterministically rate GitHub star-count claims from GitHub API data.
+
+    This prevents generic web snippets from overruling canonical repo metadata.
+    """
+    lower = text.lower()
+    if claim_type != "NUMBER" or not any(k in lower for k in ["github stars", "github star", "stars", "stargazers"]):
+        return None
+    github_ev = next((r for r in evidence_results if r.get("source") == "github" and r.get("structured_data", {}).get("stars") is not None), None)
+    if not github_ev:
+        return None
+    m = re.search(r"(\d+(?:\.\d+)?)\s*([kKmMbB]?)", text)
+    if not m:
+        return None
+    claimed = float(m.group(1))
+    unit = m.group(2).lower()
+    if unit == "k":
+        claimed *= 1_000
+    elif unit == "m":
+        claimed *= 1_000_000
+    elif unit == "b":
+        claimed *= 1_000_000_000
+    actual = int(github_ev["structured_data"]["stars"])
+    diff = abs(actual - claimed)
+    # Star counts move continuously. Treat rounded k-style claims as confirmed
+    # when they are within 5% or within 1k stars, whichever is larger.
+    tolerance = max(1000, actual * 0.05)
+    repo = github_ev["structured_data"].get("repo")
+    evidence = f"GitHub API reports {repo} has {actual} stars. Claim says approximately {int(claimed)}."
+    if diff <= tolerance:
+        rating = "✅ CONFIRMED"
+        suggestion = ""
+    else:
+        rating = "❌ WRONG"
+        suggestion = f"Replace the star count with approximately `{actual/1000:.1f}k` stars, or remove the count if freshness matters."
+    verdict = {
+        "rating": rating,
+        "evidence": evidence,
+        "source_url": github_ev.get("url", ""),
+        "correction": suggestion if rating == "❌ WRONG" else "",
+        "suggestion": suggestion if rating != "✅ CONFIRMED" else "",
+        "override": "github_stars_api",
+    }
+    trace("deterministic_override", claim=text, override="github_stars_api", repo=repo, claimed=claimed, actual=actual, tolerance=tolerance, verdict=verdict)
+    return verdict
+
+
 # ── Rate + suggestion ─────────────────────────────────────────────────────────
 RATE_SYSTEM = textwrap.dedent("""
     You are a fact-checking assistant. Given a claim and evidence gathered from
@@ -909,6 +1056,25 @@ def verify_claim(claim: dict, wiki_path: Path | None = None, use_llm_router: boo
     routed_sources, evidence_results = gather_evidence(text, ctype, wiki_path, use_llm_router=use_llm_router, use_wiki=use_wiki, max_sources=max_sources, source_workers=source_workers)
     evidence_text = format_results(evidence_results)
 
+    deterministic = github_stars_override(text, ctype, evidence_results)
+    if deterministic:
+        top_score = max((r.get("evidence_score", 0) for r in evidence_results), default=0)
+        strong_structured_evidence = any(r.get("structured") and r.get("evidence_score", 0) >= 0.80 for r in evidence_results)
+        return {
+            "type": ctype,
+            "text": text,
+            "rating": deterministic.get("rating", "🔍 UNSOURCED"),
+            "evidence": deterministic.get("evidence", ""),
+            "source_url": deterministic.get("source_url", ""),
+            "correction": deterministic.get("correction", ""),
+            "suggestion": deterministic.get("suggestion", ""),
+            "fetch_verified": False,
+            "routed_sources": routed_sources,
+            "top_evidence_score": top_score,
+            "structured_evidence": strong_structured_evidence,
+            "adversarial_note": f"Deterministic override: {deterministic.get('override')}",
+        }
+
     keywords = [w for w in re.split(r"\W+", text) if len(w) > 3][:6]
     best_evidence = next((r for r in evidence_results if r.get("url", "").startswith("http")), {})
     best_url = best_evidence.get("url", "")
@@ -951,6 +1117,7 @@ Source page verification:
     source_url = rated.get("source_url", best_url)
     correction = rated.get("correction", "")
     suggestion = rated.get("suggestion", "")
+    trace("rating_result", claim=text, claim_type=ctype, rating=rating, evidence=evidence, source_url=source_url, correction=correction, suggestion=suggestion, top_evidence_score=max((r.get("evidence_score", 0) for r in evidence_results), default=0), structured_evidence=any(r.get("structured") and r.get("evidence_score", 0) >= 0.80 for r in evidence_results))
 
     adversarial_note = ""
     top_score = max((r.get("evidence_score", 0) for r in evidence_results), default=0)
@@ -1102,7 +1269,15 @@ def main() -> None:
     parser.add_argument("--mode", choices=["auto", "fast", "spot", "draft", "full"], default="auto", help="Audit speed/depth mode")
     parser.add_argument("--workers", type=int, default=min(6, (os.cpu_count() or 4)), help="Parallel claim verification workers")
     parser.add_argument("--source-workers", type=int, default=4, help="Parallel evidence-source workers per claim")
+    parser.add_argument("--trace-log", help="Write detailed JSONL execution trace for debugging source routing, queries, structured evidence, and ratings")
     args = parser.parse_args()
+
+    if args.trace_log:
+        global TRACE_LOG_PATH
+        TRACE_LOG_PATH = Path(args.trace_log).expanduser()
+        if TRACE_LOG_PATH.exists():
+            TRACE_LOG_PATH.unlink()
+        trace("trace_start", argv=sys.argv, trace_log=TRACE_LOG_PATH)
 
     article_path = Path(args.file)
     if not article_path.exists():
@@ -1124,6 +1299,7 @@ def main() -> None:
     print("🔍 Phase 1: Extracting verifiable claims...")
     claims = extract_claims(article)
     print(f"   Found {len(claims)} claims")
+    trace("claims_extracted", article=str(article_path), claim_count=len(claims), claims=claims)
 
     if args.dry_run:
         print("\nClaims:")
@@ -1136,6 +1312,7 @@ def main() -> None:
     selected_claims = select_claims_for_mode(claims, mode)
     print(f"⚙️  Audit mode: {mode} — {cfg['description']}")
     print(f"   Selected {len(selected_claims)} / {len(claims)} claims for audit")
+    trace("mode_selected", mode=mode, config=cfg, selected_count=len(selected_claims), total_claims=len(claims), selected_claims=selected_claims)
     if not selected_claims:
         print("   No full audit work in fast mode. Use --mode spot/draft/full for scripted audits.")
 
@@ -1152,12 +1329,14 @@ def main() -> None:
     if run_consistency:
         print(f"🔄 Phase 0: Checking internal consistency... risk={risk_score} ({'; '.join(risk_reasons) or 'forced'})")
         contradictions = check_internal_consistency(article)
+        trace("consistency_checked", run=True, risk_score=risk_score, risk_reasons=risk_reasons, contradictions=contradictions)
         if contradictions:
             print(f"   ⚠️  {len(contradictions)} internal contradiction(s) found")
         else:
             print("   ✅ No internal contradictions")
     else:
         print(f"⏭️  Phase 0: Skipping internal consistency check... risk={risk_score} ({'; '.join(risk_reasons) or 'low risk'})")
+        trace("consistency_checked", run=False, risk_score=risk_score, risk_reasons=risk_reasons, contradictions=None)
 
     print("🧭 Phases 2–4: Routing sources + verifying claims...")
     results = [None] * len(selected_claims)
@@ -1205,6 +1384,7 @@ def main() -> None:
     confirmed = sum(1 for r in results if "✅" in r["rating"])
     unsourced = sum(1 for r in results if "🔍" in r["rating"])
     likely = len(results) - confirmed - uncertain - wrong - unsourced
+    trace("report_written", output=str(output_path), result_count=len(results), confirmed=confirmed, likely=likely, uncertain=uncertain, wrong=wrong, unsourced=unsourced, contradictions=len(contradictions or []))
 
     print(f"\n✅ Report saved: {output_path}")
     print(f"   ✅ {confirmed} confirmed | 🟡 {likely} likely | ⚠️ {uncertain} uncertain | ❌ {wrong} wrong | 🔍 {unsourced} unsourced")
