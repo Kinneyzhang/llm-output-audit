@@ -1,0 +1,381 @@
+# LLM Output Audit
+
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+> Audit long-form LLM output for factual accuracy, hallucination risk, stale knowledge, internal contradictions, source quality, and actionable edit suggestions.
+
+LLM Output Audit is a Hermes Agent skill and standalone Python audit script for reviewing AI-generated research reports, technical comparisons, usage guides, deployment writeups, and other durable long-form content before you save, publish, or reuse it.
+
+It is not just another RAG workflow. RAG retrieves context to help generate an answer. LLM Output Audit starts with an existing draft, extracts atomic factual claims, routes each claim to the most authoritative evidence source, verifies the evidence, rates the claim, and produces concrete edit suggestions.
+
+## Why this exists
+
+LLMs are good at drafting, but long-form AI output tends to fail in predictable ways:
+
+- **Hallucinated facts** — confident but wrong dates, numbers, names, attributions, or causal claims.
+- **Stale knowledge** — project status, version numbers, download counts, or ecosystem facts that changed after the model learned them.
+- **Unsupported claims** — plausible claims with no reliable evidence.
+- **Internal contradictions** — sections that cannot all be true at the same time.
+- **Weak source quality** — generic snippets used where official APIs or primary sources should be used.
+
+LLM Output Audit gives an agent a repeatable review pipeline before the output becomes part of your notes, wiki, blog, README, or public documentation.
+
+## What it does
+
+```text
+Draft article
+  ↓
+Extract atomic factual claims
+  ↓
+Select audit mode: fast / spot / draft / full / auto
+  ↓
+Route each selected claim to the best evidence sources
+  ↓
+Query sources in parallel
+  ↓
+Score evidence by authority, directness, and freshness
+  ↓
+Fetch generic web pages when useful
+  ↓
+Rate each claim
+  ↓
+Run conditional adversarial review for risky wrong claims
+  ↓
+Generate an audit report with edit suggestions
+```
+
+## Key features
+
+- **Claim extraction** — turns prose into individually verifiable `[DATE]`, `[NUMBER]`, `[EVENT]`, `[ATTR]`, `[STATUS]`, and `[CAUSAL]` claims.
+- **Source Router** — routes different claims to the right evidence channel instead of blindly searching the web.
+- **Specialized sources** — GitHub, Wikipedia, arXiv, Semantic Scholar, PyPI, npm, Tavily/DuckDuckGo, and optional local LLM Wiki.
+- **Evidence scoring** — ranks evidence by authority, directness, freshness, and whether it came from structured API data.
+- **Audit modes** — choose between fast, spot, draft, full, or auto depth to balance speed and accuracy.
+- **Parallel verification** — claim-level and source-level concurrency with configurable worker counts.
+- **Risk-gated consistency checking** — detects when internal contradiction checks are worth running.
+- **Conditional adversarial pass** — reduces false positives for claims initially marked wrong.
+- **Actionable edits** — generates correction, hedging, citation, or deletion suggestions instead of only saying “right/wrong”.
+- **Optional local knowledge base** — LLM Wiki can be used when available, but is not required.
+
+## Audit modes
+
+LLM Output Audit does not run the same expensive pipeline for every task. Use modes to balance latency and reliability.
+
+| Mode | Best for | Behavior |
+| --- | --- | --- |
+| `fast` | Ordinary low-risk chat | No full audit. Use normal answering or manual spot-check only when needed. |
+| `spot` | High-risk short factual answers | Audit up to 3 highest-importance claims, 1–2 routed sources each, no consistency/adversarial pass. |
+| `draft` | Durable drafts, internal reports, notes, wiki pages | Audit up to 12 medium/high-importance claims, risk-gated consistency, conditional adversarial pass. |
+| `full` | Public publishing, important reports, user-requested deep audit | Audit up to 50 claims, more sources, full consistency check, LLM router, adversarial pass enabled. |
+| `auto` | Default scripted use | Infer mode from claim count, article length, and consistency risk. |
+
+Recommended defaults:
+
+- Ordinary short answer: `fast`
+- High-risk short factual answer: `spot`
+- Research report / usage guide / technical comparison: `draft`
+- Blog post / README / public docs / important report: `full`
+
+## Source Router
+
+Different facts have different authoritative sources. LLM Output Audit asks the source that owns the fact.
+
+| Claim type | Preferred evidence |
+| --- | --- |
+| GitHub stars, releases, project activity | GitHub API |
+| npm package version or downloads | npm registry / npm downloads API |
+| Python package version or release date | PyPI API |
+| Paper metadata, publication date | arXiv API |
+| Paper citations, venue, authors | Semantic Scholar API |
+| Organization, person, historical background | Wikipedia / primary web sources |
+| Current announcements, ecosystem news | Tavily / DuckDuckGo web search |
+| User-curated local knowledge | Optional LLM Wiki |
+
+Example:
+
+```text
+Claim: Next.js has over 150 million monthly npm downloads
+Routes: npm → Tavily web
+```
+
+```text
+Claim: github.com/assafelovic/gpt-researcher is an open-source project
+Routes: GitHub → Tavily web
+```
+
+## Ratings
+
+Each audited claim receives one rating:
+
+| Rating | Meaning | Typical action |
+| --- | --- | --- |
+| ✅ `CONFIRMED` | Official source or multiple reliable sources support the claim. | Keep. |
+| 🟡 `LIKELY` | One reliable source supports it and no contradiction is found. | Keep, preferably add citation. |
+| ⚠️ `UNCERTAIN` | Sources conflict, the source is weak, or the claim is too broad. | Hedge, cite, or request human review. |
+| ❌ `WRONG` | Reliable evidence clearly contradicts the claim. | Replace with corrected text. |
+| 🔍 `UNSOURCED` | No relevant evidence found either way. | Remove, hedge, or mark citation needed. |
+
+## Installation
+
+Clone the repository:
+
+```bash
+git clone https://github.com/Kinneyzhang/llm-output-audit.git
+cd llm-output-audit
+```
+
+Install Python dependencies:
+
+```bash
+python3 -m pip install requests
+```
+
+The script is intentionally small: it uses the Python standard library for orchestration and `requests` for HTTP calls.
+
+## Configuration
+
+At least one OpenAI-compatible LLM key is required for claim extraction and rating.
+
+### Required
+
+Use one of:
+
+```bash
+export DEEPSEEK_API_KEY="..."
+```
+
+or:
+
+```bash
+export OPENAI_API_KEY="..."
+```
+
+### Recommended
+
+Tavily can improve general web evidence quality:
+
+```bash
+export TAVILY_API_KEY="..."
+```
+
+Without Tavily, the script falls back to DuckDuckGo’s instant-answer API where possible.
+
+### Optional OpenAI-compatible endpoint
+
+For local or self-hosted models:
+
+```bash
+export FACT_CHECK_BASE_URL="http://localhost:8000/v1"
+export FACT_CHECK_MODEL="your-model-name"
+export DGX_API_KEY="..."   # if your endpoint requires a key
+```
+
+### Optional LLM Wiki
+
+LLM Wiki is optional. The audit works without it.
+
+```bash
+--use-wiki --wiki /path/to/llm-wiki
+```
+
+## Usage
+
+### Spot-check a short high-risk factual answer
+
+```bash
+python3 scripts/fact_check.py \
+  --file article.md \
+  --mode spot \
+  --workers 3 \
+  --source-workers 3
+```
+
+### Audit a durable draft
+
+```bash
+python3 scripts/fact_check.py \
+  --file article.md \
+  --output article-audit.md \
+  --mode draft \
+  --workers 6 \
+  --source-workers 4
+```
+
+### Publication-grade audit
+
+```bash
+python3 scripts/fact_check.py \
+  --file article.md \
+  --output article-audit.md \
+  --mode full \
+  --workers 8 \
+  --source-workers 4
+```
+
+### Use local LLM Wiki as an extra evidence source
+
+```bash
+python3 scripts/fact_check.py \
+  --file article.md \
+  --output article-audit.md \
+  --mode draft \
+  --use-wiki \
+  --wiki /path/to/llm-wiki
+```
+
+### Extract claims only
+
+```bash
+python3 scripts/fact_check.py \
+  --file article.md \
+  --dry-run
+```
+
+## CLI reference
+
+```text
+--file FILE                    Markdown article to audit. Required.
+--output OUTPUT                Report path. Default: <file>-audit.md.
+--mode auto|fast|spot|draft|full
+                               Speed/depth policy. Default: auto.
+--workers N                    Parallel claim verification workers.
+--source-workers N             Parallel evidence-source workers per claim.
+--wiki PATH                    Optional LLM Wiki root; only used with --use-wiki.
+--use-wiki                     Enable optional local LLM Wiki evidence source.
+--skip-consistency             Skip internal consistency check.
+--force-consistency            Force internal consistency check.
+--dry-run                      Extract claims only.
+--no-fetch                     Skip source page fetching.
+--llm-router                   Use LLM to refine source routing when ambiguous.
+```
+
+## Example output
+
+The following is an illustrative report excerpt showing the output shape. The concrete claims and verdicts are examples, not benchmark claims about this project.
+
+```markdown
+# LLM Output Audit Report: article.md
+Checked: 2026-05-10
+Claims audited: 3 / 4 extracted
+Audit mode: spot
+Verdict summary: ✅ CONFIRMED 2 | 🔍 UNSOURCED 1
+
+---
+
+## ✅ Confirmed
+
+- **[STATUS]** github.com/assafelovic/gpt-researcher is an open-source project
+  - Routed sources: github, tavily_web
+  - Source quality: score=0.912 structured=True
+  - Evidence: The GitHub repository is licensed under Apache-2.0 and publicly accessible.
+  - Source: https://github.com/assafelovic/gpt-researcher
+
+## 🔍 Unsourced — Could Not Verify
+
+- **[NUMBER]** A package has a specific monthly npm download count
+  - Routed sources: npm, tavily_web
+  - Source quality: score=0.812 structured=True
+  - Evidence: npm metadata confirms the package identity, but the exact monthly count requires a reliable download-statistics source.
+  - Suggestion: Add a reliable download statistics citation or hedge the number.
+```
+
+## Agent workflow policy
+
+The skill is designed for agentic use, not only manual CLI use.
+
+### Agent-generated durable output
+
+When an agent generates content that will be saved, published, or reused:
+
+```text
+Draft internally → run audit → apply safe revisions → deliver/save final version
+```
+
+Do not show the user an unreviewed draft as the final answer.
+
+### User-supplied existing text
+
+When the user provides an existing article or file:
+
+```text
+Audit first → return report + prioritized edit suggestions → wait before modifying source
+```
+
+Do not silently mutate user-owned source files unless the user explicitly asks to apply fixes.
+
+### High-risk short answers
+
+For short answers involving current versions, project status, prices, release dates, legal/medical/financial/security facts:
+
+```text
+High-risk claim → source route → quick spot-check → answer with uncertainty/citation
+```
+
+## Performance and parallelism
+
+Use parallelism to keep latency manageable:
+
+- `--workers` controls claim-level concurrency.
+- `--source-workers` controls source-level concurrency per claim.
+- Structured API evidence skips unnecessary page fetching.
+- Consistency checks, adversarial review, and LLM routing are conditional by mode/risk.
+
+Start with:
+
+```bash
+--workers 6 --source-workers 4
+```
+
+Reduce workers if an API provider throttles. Increase cautiously for local endpoints or generous APIs.
+
+## Limitations
+
+LLM Output Audit improves reliability, but it does not guarantee truth.
+
+Known limitations:
+
+- Search indexes can lag recent events.
+- Niche or private facts may be unsourced.
+- Some third-party web pages contain inaccurate or stale information.
+- Causal and qualitative claims still require human judgment.
+- A `🔍 UNSOURCED` rating means “not verified”, not automatically “false”.
+- A `❌ WRONG` rating should still be checked before high-stakes publication.
+
+## Project structure
+
+```text
+.
+├── README.md
+├── SKILL.md
+├── LICENSE
+├── requirements.txt
+├── scripts/
+│   └── fact_check.py
+└── examples/
+    └── smoke.md
+```
+
+## Roadmap
+
+Potential next steps:
+
+- Cache source results under `~/.cache/llm-output-audit/`.
+- Add deterministic numeric/date/version comparison before LLM rating.
+- Add structured claim normalization (`subject`, `predicate`, `claimed_value`, `time_window`).
+- Add optional `--apply` mode for safe automatic patching of clear `❌ WRONG` fixes.
+- Add GitHub Actions smoke tests.
+- Package as a Python CLI (`pipx install llm-output-audit`).
+
+## Contributing
+
+Issues and pull requests are welcome. Good contributions include:
+
+- New source adapters.
+- Better claim extraction prompts.
+- More robust entity/package detection.
+- Evaluation examples and benchmarks.
+- Safer edit-application logic.
+
+## License
+
+MIT
