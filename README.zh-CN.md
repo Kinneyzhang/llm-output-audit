@@ -78,18 +78,18 @@ LLM Output Audit 不会对所有任务都跑同样深度。不同模式用于平
 
 ## 能审计哪些类型的声明？
 
-当前实现使用一组紧凑的 claim 标签：`[DATE]`、`[NUMBER]`、`[EVENT]`、`[ATTR]`、`[STATUS]`、`[CAUSAL]`。但这些标签不只覆盖日期和数字。
+当前实现已经使用显式 claim 类型：`[DATE]`、`[NUMBER]`、`[EVENT]`、`[ATTR]`、`[STATUS]`、`[FEATURE]`、`[REQUIREMENT]`、`[COMPAT]`、`[WORKFLOW]`、`[EVAL]`、`[CAUSAL]`。功能、需求、兼容性、工作流和评价类声明现在都是一等审计对象。
 
 只要能对应到证据，LLM Output Audit 可以审计很多信息类声明：
 
 | 声明类型 | 示例 | 处理方式 |
 | --- | --- | --- |
 | 数字 / 日期 | “某包每周下载 100 万次”、“项目 Y 在 2025 年发布” | 路由到包注册表、GitHub release、网页公告等。 |
-| 功能 / 能力 | “库 X 支持 streaming responses”、“工具 Y 可以索引本地 Markdown 文件” | 路由到官方文档、README、源码、issue、包文档或项目网站。通常映射为 `[STATUS]` 或 `[ATTR]`。 |
-| 需求 / 约束 | “这个包要求 Python 3.10+”、“这个服务需要 PostgreSQL” | 路由到包元数据、安装文档、README、pyproject/package.json 或部署文档。通常映射为 `[STATUS]`。 |
-| 支持 / 兼容性 | “框架 X 支持 Vite”、“模型 Y 支持 OpenAI-compatible API” | 路由到官方文档、changelog、示例、集成文档或源码。 |
-| 流程 / 工作流 | “这个工具先抽取 claims，再路由证据源” | 路由到本仓库源码、文档或示例。 |
-| 对比类声明 | “A 比 B 更快/更可靠” | 路由到 benchmark、论文、官方文档或第三方评测；证据不足时通常给 `⚠️ UNCERTAIN`。 |
+| 功能 / 能力 | “库 X 支持 streaming responses”、“工具 Y 可以索引本地 Markdown 文件” | 路由到官方文档、README、源码、issue、包文档或项目网站。表示为 `[FEATURE]`。 |
+| 需求 / 约束 | “这个包要求 Python 3.10+”、“这个服务需要 PostgreSQL” | 路由到包元数据、安装文档、README、pyproject/package.json 或部署文档。表示为 `[REQUIREMENT]`。 |
+| 支持 / 兼容性 | “框架 X 支持 Vite”、“模型 Y 支持 OpenAI-compatible API” | 路由到官方文档、changelog、示例、集成文档或源码。表示为 `[COMPAT]`。 |
+| 流程 / 工作流 | “这个工具先抽取 claims，再路由证据源” | 路由到本仓库源码、文档或示例。表示为 `[WORKFLOW]`。 |
+| 对比类声明 | “A 比 B 更快/更可靠” | 路由到 benchmark、论文、官方文档或第三方评测；证据不足时通常给 `⚠️ UNCERTAIN`。表示为 `[EVAL]` 或 `[CAUSAL]`。 |
 | 类观点声明 | “这是大多数团队的最佳选择” | 不当作客观真/假处理，而是检查是否有证据支撑、是否过度自信、是否缺少 caveat，必要时建议改写成观点。 |
 
 所以它不是只能查数字和时间。真正的边界是**可验证性**：如果一个声明能通过文档、元数据、源码、benchmark、论文或可靠评论来核查，它就可以被审计。纯主观观点不能被证明为“真”，但可以被标记为过度自信、缺少证据或需要更谨慎表达。

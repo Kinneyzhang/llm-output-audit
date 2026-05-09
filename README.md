@@ -78,18 +78,18 @@ Recommended defaults:
 
 ## What kinds of claims can it audit?
 
-The implementation currently uses a compact set of claim labels — `[DATE]`, `[NUMBER]`, `[EVENT]`, `[ATTR]`, `[STATUS]`, and `[CAUSAL]` — but those labels are broader than dates and numbers.
+The implementation now uses an explicit claim taxonomy — `[DATE]`, `[NUMBER]`, `[EVENT]`, `[ATTR]`, `[STATUS]`, `[FEATURE]`, `[REQUIREMENT]`, `[COMPAT]`, `[WORKFLOW]`, `[EVAL]`, and `[CAUSAL]` — so feature, requirement, compatibility, workflow, and evaluative claims are first-class audit targets.
 
 LLM Output Audit can audit many information claims as long as they can be tied to evidence:
 
 | Claim class | Example | How it is handled |
 | --- | --- | --- |
 | Numeric / date claims | “Package X has 1M weekly downloads”, “Project Y was released in 2025” | Routed to package registries, GitHub releases, web announcements, etc. |
-| Feature / capability claims | “Library X supports streaming responses”, “Tool Y can index local Markdown files” | Routed to official docs, README, source code, issues, package docs, or project website. Usually represented as `[STATUS]` or `[ATTR]`. |
-| Requirement / constraint claims | “This package requires Python 3.10+”, “The service needs PostgreSQL” | Routed to package metadata, installation docs, README, pyproject/package.json, or deployment docs. Usually represented as `[STATUS]`. |
-| Support / compatibility claims | “Framework X supports Vite”, “Model Y works with OpenAI-compatible APIs” | Routed to official docs, changelog, examples, integration docs, or source code. |
-| Process / workflow claims | “The tool first extracts claims and then routes evidence sources” | Routed to this repository’s source code, documentation, or examples. |
-| Comparative claims | “A is faster/more reliable than B” | Routed to benchmarks, papers, docs, or independent evaluations. Often rated `⚠️ UNCERTAIN` unless the evidence is strong. |
+| Feature / capability claims | “Library X supports streaming responses”, “Tool Y can index local Markdown files” | Routed to official docs, README, source code, issues, package docs, or project website. Represented as `[FEATURE]`. |
+| Requirement / constraint claims | “This package requires Python 3.10+”, “The service needs PostgreSQL” | Routed to package metadata, installation docs, README, pyproject/package.json, or deployment docs. Represented as `[REQUIREMENT]`. |
+| Support / compatibility claims | “Framework X supports Vite”, “Model Y works with OpenAI-compatible APIs” | Routed to official docs, changelog, examples, integration docs, or source code. Represented as `[COMPAT]`. |
+| Process / workflow claims | “The tool first extracts claims and then routes evidence sources” | Routed to this repository’s source code, documentation, or examples. Represented as `[WORKFLOW]`. |
+| Comparative claims | “A is faster/more reliable than B” | Routed to benchmarks, papers, docs, or independent evaluations. Often rated `⚠️ UNCERTAIN` unless the evidence is strong. Represented as `[EVAL]` or `[CAUSAL]`. |
 | Opinion-like claims | “This is the best option for most teams” | Not treated as objectively true/false. The audit checks whether the claim is supported, overconfident, missing caveats, or should be rewritten as an opinion. |
 
 So the tool is not limited to numbers and dates. The important boundary is **verifiability**: if a claim can be checked against documentation, metadata, source code, benchmarks, papers, or reliable commentary, it can be audited. If it is purely subjective, the tool can still flag overconfidence and suggest more careful wording, but it cannot prove the opinion “true”.

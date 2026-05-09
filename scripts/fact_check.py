@@ -2,7 +2,7 @@
 """
 fact_check.py — LLM output audit pipeline for long-form articles and reports.
 
-v6 pipeline:
+v6.1 pipeline:
   0. Internal consistency check (no network)
   1. Extract atomic verifiable claims
   2. Select audit mode: fast / spot / draft / full / auto
@@ -229,16 +229,16 @@ def claim_importance(claim: dict) -> tuple[int, list[str]]:
     score = 0
     reasons = []
 
-    if ctype in {"DATE", "NUMBER", "STATUS", "ATTR"}:
+    if ctype in {"DATE", "NUMBER", "STATUS", "ATTR", "FEATURE", "REQUIREMENT", "COMPAT"}:
         score += 2
         reasons.append(f"type:{ctype}")
-    if ctype == "CAUSAL":
+    if ctype in {"CAUSAL", "EVAL", "WORKFLOW"}:
         score += 1
         reasons.append("causal")
-    if any(k in lower for k in ["latest", "current", "deprecated", "merged", "release", "version", "download", "stars", "citations", "no longer"]):
+    if any(k in lower for k in ["latest", "current", "deprecated", "merged", "release", "version", "download", "stars", "citations", "no longer", "supports", "requires", "compatible", "feature", "workflow"]):
         score += 2
         reasons.append("high-risk current/status keyword")
-    if any(k in lower for k in ["最新", "当前", "废弃", "并入", "发布", "版本", "下载", "引用", "不再", "仍然"]):
+    if any(k in lower for k in ["最新", "当前", "废弃", "并入", "发布", "版本", "下载", "引用", "不再", "仍然", "支持", "要求", "兼容", "功能", "流程"]):
         score += 2
         reasons.append("high-risk cn keyword")
     if re.search(r"\b\d[\d,\.]*\s*(k|m|b|万|亿|%|percent|million|billion)?\b", lower):
@@ -272,42 +272,42 @@ def select_claims_for_mode(claims: list[dict], mode: str) -> list[dict]:
 SOURCE_REGISTRY = {
     "tavily_web": {
         "strengths": ["latest news", "official announcements", "general web", "status changes"],
-        "claim_types": ["DATE", "NUMBER", "EVENT", "ATTR", "STATUS", "CAUSAL"],
-        "keywords": ["announced", "released", "current", "status", "news", "blog", "发布", "宣布", "现状"],
+        "claim_types": ["DATE", "NUMBER", "EVENT", "ATTR", "STATUS", "FEATURE", "REQUIREMENT", "COMPAT", "WORKFLOW", "EVAL", "CAUSAL"],
+        "keywords": ["announced", "released", "current", "status", "news", "blog", "feature", "supports", "requires", "compatible", "workflow", "发布", "宣布", "现状", "功能", "支持", "要求", "兼容", "流程"],
     },
     "github": {
         "strengths": ["open-source repositories", "releases", "stars", "maintainers", "software dates"],
-        "claim_types": ["DATE", "NUMBER", "ATTR", "STATUS"],
-        "keywords": ["github", "repo", "repository", "release", "stars", "开源", "仓库", "版本"],
+        "claim_types": ["DATE", "NUMBER", "ATTR", "STATUS", "FEATURE", "REQUIREMENT", "COMPAT", "WORKFLOW"],
+        "keywords": ["github", "repo", "repository", "release", "stars", "readme", "docs", "source", "feature", "supports", "requires", "开源", "仓库", "版本", "文档", "功能", "支持", "要求"],
     },
     "wikipedia": {
         "strengths": ["organizations", "people", "historical facts", "standards background"],
-        "claim_types": ["DATE", "EVENT", "ATTR", "NUMBER"],
+        "claim_types": ["DATE", "EVENT", "ATTR", "NUMBER", "STATUS", "FEATURE"],
         "keywords": ["company", "organization", "founded", "person", "standard", "protocol", "公司", "组织", "成立", "创始", "协议"],
     },
     "arxiv": {
         "strengths": ["paper metadata", "authors", "submission dates", "research claims"],
-        "claim_types": ["DATE", "ATTR", "CAUSAL"],
+        "claim_types": ["DATE", "ATTR", "EVAL", "CAUSAL"],
         "keywords": ["arxiv", "paper", "论文", "研究", "发表", "preprint"],
     },
     "semantic_scholar": {
         "strengths": ["paper citations", "academic influence", "authors", "publication venue"],
-        "claim_types": ["NUMBER", "ATTR", "CAUSAL"],
+        "claim_types": ["NUMBER", "ATTR", "EVAL", "CAUSAL"],
         "keywords": ["citation", "citations", "cited", "引用", "论文", "研究"],
     },
     "pypi": {
         "strengths": ["Python package versions", "release dates", "package metadata"],
-        "claim_types": ["DATE", "NUMBER", "ATTR", "STATUS"],
-        "keywords": ["python", "pip", "pypi", "package", "库", "包"],
+        "claim_types": ["DATE", "NUMBER", "ATTR", "STATUS", "FEATURE", "REQUIREMENT", "COMPAT", "WORKFLOW"],
+        "keywords": ["python", "pip", "pypi", "package", "requires", "dependency", "库", "包", "要求", "依赖"],
     },
     "npm": {
         "strengths": ["JavaScript package versions", "npm downloads", "release dates"],
-        "claim_types": ["DATE", "NUMBER", "STATUS"],
-        "keywords": ["npm", "node", "javascript", "typescript", "downloads", "下载"],
+        "claim_types": ["DATE", "NUMBER", "STATUS", "FEATURE", "REQUIREMENT", "COMPAT"],
+        "keywords": ["npm", "node", "javascript", "typescript", "downloads", "supports", "requires", "compatible", "下载", "支持", "要求", "兼容"],
     },
     "llm_wiki": {
         "strengths": ["local curated knowledge", "confirmed personal wiki pages", "previously verified facts"],
-        "claim_types": ["DATE", "NUMBER", "EVENT", "ATTR", "STATUS", "CAUSAL"],
+        "claim_types": ["DATE", "NUMBER", "EVENT", "ATTR", "STATUS", "FEATURE", "REQUIREMENT", "COMPAT", "WORKFLOW", "EVAL", "CAUSAL"],
         "keywords": [""],
     },
 }
@@ -333,7 +333,7 @@ def rule_route_sources(claim_type: str, text: str, use_wiki: bool = False) -> li
         scores["npm"] += 4
     if any(k in lower for k in ["pip install", "pypi", "python package"]):
         scores["pypi"] += 5
-    if any(k in lower for k in ["paper", "arxiv", "论文", "citation", "引用"]):
+    if any(k in lower for k in ["paper", "arxiv", "论文", "citation", "引用", "benchmark", "evaluation", "评测", "基准"]):
         scores["arxiv"] += 4
         scores["semantic_scholar"] += 4
 
@@ -749,12 +749,17 @@ EXTRACT_SYSTEM = textwrap.dedent("""
     Format: [TYPE] claim text
 
     Types:
-    [DATE]    specific date or time period tied to an event
-    [NUMBER]  statistics, counts, version numbers, percentages
-    [EVENT]   named events and their outcomes
-    [ATTR]    attribution — who created/announced/released something
-    [STATUS]  current state of a project, protocol, or tool
-    [CAUSAL]  causal claims ("X led to Y", "because of X, Y happened")
+    [DATE]        specific date or time period tied to an event
+    [NUMBER]      statistics, counts, version numbers, percentages
+    [EVENT]       named events and their outcomes
+    [ATTR]        attribution — who created/announced/released something
+    [STATUS]      current state of a project, protocol, or tool
+    [FEATURE]     feature/capability claim — what a tool/package/model can do
+    [REQUIREMENT] runtime/deployment/install requirement or constraint
+    [COMPAT]      compatibility/integration/support claim
+    [WORKFLOW]    process/workflow/architecture behavior claim
+    [EVAL]        comparative/evaluative claim that can be supported by evidence
+    [CAUSAL]      causal claims ("X led to Y", "because of X, Y happened")
 
     Rules:
     - Atomic: one fact per line, no compound claims
@@ -771,7 +776,7 @@ def extract_claims(article: str) -> list[dict]:
     claims = []
     for line in raw.splitlines():
         line = line.strip()
-        m = re.match(r"\[(DATE|NUMBER|EVENT|ATTR|STATUS|CAUSAL)\]\s+(.*)", line)
+        m = re.match(r"\[(DATE|NUMBER|EVENT|ATTR|STATUS|FEATURE|REQUIREMENT|COMPAT|WORKFLOW|EVAL|CAUSAL)\]\s+(.*)", line)
         if m:
             claims.append({"type": m.group(1), "text": m.group(2).strip()})
     return claims
@@ -781,7 +786,7 @@ def extract_claims(article: str) -> list[dict]:
 def consistency_risk(article: str, claims: list[dict]) -> tuple[int, list[str]]:
     """Cheap deterministic gate: decide whether full internal consistency check is worth running."""
     text = article.lower()
-    type_counts = {t: 0 for t in ["DATE", "NUMBER", "EVENT", "ATTR", "STATUS", "CAUSAL"]}
+    type_counts = {t: 0 for t in ["DATE", "NUMBER", "EVENT", "ATTR", "STATUS", "FEATURE", "REQUIREMENT", "COMPAT", "WORKFLOW", "EVAL", "CAUSAL"]}
     for c in claims:
         type_counts[c.get("type", "")] = type_counts.get(c.get("type", ""), 0) + 1
 
@@ -950,7 +955,7 @@ Source page verification:
     adversarial_note = ""
     top_score = max((r.get("evidence_score", 0) for r in evidence_results), default=0)
     strong_structured_evidence = any(r.get("structured") and r.get("evidence_score", 0) >= 0.80 for r in evidence_results)
-    should_adversarial = bool(adversarial_policy) and "❌" in rating and not (adversarial_policy == "conditional" and strong_structured_evidence and ctype in {"DATE", "NUMBER", "STATUS", "ATTR"})
+    should_adversarial = bool(adversarial_policy) and "❌" in rating and not (adversarial_policy == "conditional" and strong_structured_evidence and ctype in {"DATE", "NUMBER", "STATUS", "ATTR", "FEATURE", "REQUIREMENT", "COMPAT"})
     if "❌" in rating and not should_adversarial:
         adversarial_note = "Skipped: high-authority structured evidence is sufficient for this factual mismatch."
     if should_adversarial:

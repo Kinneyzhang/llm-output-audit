@@ -1,7 +1,7 @@
 ---
 name: llm-output-audit
 description: Use when auditing long-form LLM-generated articles, technical reports, or research notes for factual accuracy, hallucination risk, internal consistency, source quality, and actionable edit suggestions.
-version: 1.7.1
+version: 1.8.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -214,6 +214,11 @@ Ask the LLM to extract atomic, individually-verifiable claims from the article. 
 - `[EVENT]` — named events and their outcomes
 - `[ATTR]` — attribution (who made what, who announced what)
 - `[STATUS]` — current state of a project/protocol/tool
+- `[FEATURE]` — feature/capability claim (what a package/tool/model can do)
+- `[REQUIREMENT]` — runtime, deployment, installation, dependency, or constraint claim
+- `[COMPAT]` — compatibility/integration/support claim
+- `[WORKFLOW]` — process, architecture, or workflow behavior claim
+- `[EVAL]` — comparative/evaluative claim that can be supported by evidence
 - `[CAUSAL]` — causal or logical claims ("X led to Y", "because X")
 
 **Extraction prompt template:**
