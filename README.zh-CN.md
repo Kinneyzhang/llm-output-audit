@@ -137,24 +137,6 @@ LLM Output Audit 不会对所有任务都跑同样深度。不同模式用于平
 | ❌ `WRONG` | 可靠证据明确反驳。 | 替换成正确表述。 |
 | 🔍 `UNSOURCED` | 没找到相关证据。 | 删除、弱化，或标记需要引用。 |
 
-## 唯一来源与 Hermes 安装
-
-本仓库应该作为这个 skill 的**唯一物理来源**。如果你同时把它作为 Hermes Agent skill 使用，不要在 `~/.hermes/skills` 下保留第二份复制目录，而应该使用 symlink：
-
-```bash
-mkdir -p ~/.hermes/skills/research
-ln -sfn /path/to/llm-output-audit ~/.hermes/skills/research/llm-output-audit
-```
-
-推荐布局：
-
-```text
-/path/to/llm-output-audit                         # 真实 Git repo，所有修改和提交都在这里
-~/.hermes/skills/research/llm-output-audit        # 指向上面 repo 的 symlink
-```
-
-这样可以避免 README、`SKILL.md`、`scripts/fact_check.py` 在多个本地副本之间产生版本漂移。
-
 ## 安装
 
 克隆仓库：

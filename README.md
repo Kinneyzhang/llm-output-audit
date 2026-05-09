@@ -137,24 +137,6 @@ Each audited claim receives one rating:
 | ❌ `WRONG` | Reliable evidence clearly contradicts the claim. | Replace with corrected text. |
 | 🔍 `UNSOURCED` | No relevant evidence found either way. | Remove, hedge, or mark citation needed. |
 
-## Source of truth and Hermes installation
-
-This repository is intended to be the **single physical source of truth** for the skill. If you also use it as a Hermes Agent skill, do not keep a second copied skill directory under `~/.hermes/skills`. Use a symlink instead:
-
-```bash
-mkdir -p ~/.hermes/skills/research
-ln -sfn /path/to/llm-output-audit ~/.hermes/skills/research/llm-output-audit
-```
-
-Recommended layout:
-
-```text
-/path/to/llm-output-audit                         # real Git repo, edit and commit here
-~/.hermes/skills/research/llm-output-audit        # symlink to the repo above
-```
-
-This prevents README, `SKILL.md`, and `scripts/fact_check.py` from drifting across multiple local copies.
-
 ## Installation
 
 Clone the repository:
