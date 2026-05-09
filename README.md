@@ -2,11 +2,23 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+[![CI](https://github.com/Kinneyzhang/llm-output-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/Kinneyzhang/llm-output-audit/actions/workflows/ci.yml)
+
 > Audit long-form LLM output for factual accuracy, hallucination risk, stale knowledge, internal contradictions, source quality, and actionable edit suggestions.
 
 LLM Output Audit is a Hermes Agent skill and standalone Python audit script for reviewing AI-generated research reports, technical comparisons, usage guides, deployment writeups, and other durable long-form content before you save, publish, or reuse it.
 
 It is not just another RAG workflow. RAG retrieves context to help generate an answer. LLM Output Audit starts with an existing draft, extracts atomic factual claims, routes each claim to the most authoritative evidence source, verifies the evidence, rates the claim, and produces concrete edit suggestions.
+
+## Architecture
+
+![LLM Output Audit architecture](docs/architecture.svg)
+
+The pipeline separates drafting from auditing: text is converted into typed claims, claims are filtered by audit mode, the Source Router chooses evidence channels, evidence is gathered in parallel, and the final report produces verdicts plus edit suggestions.
+
+## Demo report
+
+See [examples/demo-report.md](examples/demo-report.md) for an illustrative audit report showing verdict sections, routed sources, source quality, and edit suggestions.
 
 ## Why this exists
 
@@ -335,20 +347,38 @@ High-risk claim → source route → quick spot-check → answer with uncertaint
 
 ## Performance and parallelism
 
-Use parallelism to keep latency manageable:
+Use parallelism to reduce latency:
 
 - `--workers` controls claim-level concurrency.
-- `--source-workers` controls source-level concurrency per claim.
-- Structured API evidence skips unnecessary page fetching.
-- Consistency checks, adversarial review, and LLM routing are conditional by mode/risk.
+- `--source-workers` controls source-level concurrency inside each claim.
+- Structured API evidence skips unnecessary web-page fetching.
+- Consistency checks, adversarial review, and LLM routing are mode/risk gated.
 
-Start with:
+Recommended starting point:
 
 ```bash
 --workers 6 --source-workers 4
 ```
 
-Reduce workers if an API provider throttles. Increase cautiously for local endpoints or generous APIs.
+Reduce workers if an API rate-limits you. Increase carefully when using local endpoints or generous provider quotas.
+
+## Continuous Integration
+
+This repository uses GitHub Actions to run a lightweight CI workflow on every push and pull request. The CI does not call paid LLM APIs. It verifies the parts that should always work without credentials:
+
+- Python syntax: `python -m py_compile scripts/fact_check.py`
+- CLI startup: `python scripts/fact_check.py --help`
+- Source Router import and smoke tests for `FEATURE`, `REQUIREMENT`, `COMPAT`, `WORKFLOW`, and `EVAL`
+- Required docs and examples exist
+- README language switch links are present
+- Architecture SVG is valid enough to be detected by a basic sanity check
+
+Why CI matters here:
+
+- It prevents accidental syntax breaks in the CLI.
+- It catches missing docs/assets after refactors.
+- It lets outside contributors submit PRs without guessing whether the repo still works.
+- It keeps the public release trustworthy without requiring secrets in GitHub Actions.
 
 ## Limitations
 

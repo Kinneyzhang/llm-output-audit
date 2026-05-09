@@ -2,11 +2,23 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+[![CI](https://github.com/Kinneyzhang/llm-output-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/Kinneyzhang/llm-output-audit/actions/workflows/ci.yml)
+
 > 审计大模型生成的长文输出：事实准确性、幻觉风险、过时知识、内部矛盾、来源质量，并给出可执行修改建议。
 
 LLM Output Audit 是一个 Hermes Agent skill，也可以作为独立 Python 审计脚本使用。它适合在保存、发布或复用 AI 生成的研究报告、技术对比、使用指南、部署记录、README、博客和知识库页面之前，对内容进行系统性审查。
 
 它不是普通 RAG。RAG 的目标通常是“检索上下文并生成回答”。LLM Output Audit 的目标是“审计已有草稿”：抽取原子事实声明，按声明类型路由到最权威的数据源，收集证据，给出评级，并生成可执行的修订建议。
+
+## 架构图
+
+![LLM Output Audit 架构图](docs/architecture.svg)
+
+这个流程把“起草”和“审计”分开：文本先转成有类型的 claims，再按审计模式筛选重点 claim，由 Source Router 选择证据渠道，并行取证，最后输出 verdict 和修改建议。
+
+## Demo report
+
+查看 [examples/demo-report.md](examples/demo-report.md)，可以看到一份示意性审计报告，包括 verdict 分区、routed sources、source quality 和 edit suggestions。
 
 ## 为什么需要它
 
@@ -349,6 +361,24 @@ Verdict summary: ✅ CONFIRMED 2 | 🔍 UNSOURCED 1
 ```
 
 如果 API 被限流，就降低 worker；如果是本地 endpoint 或宽松 API，可以谨慎提高。
+
+## 持续集成
+
+本仓库使用 GitHub Actions 在每次 push 和 pull request 时运行轻量 CI。CI 不调用付费 LLM API，只验证不需要凭据也应该始终可用的部分：
+
+- Python 语法：`python -m py_compile scripts/fact_check.py`
+- CLI 能启动：`python scripts/fact_check.py --help`
+- Source Router 能 import，并对 `FEATURE`、`REQUIREMENT`、`COMPAT`、`WORKFLOW`、`EVAL` 做 smoke test
+- 必需文档和示例文件存在
+- README 中英文切换链接存在
+- 架构图 SVG 通过基础 sanity check
+
+为什么需要 CI：
+
+- 防止 CLI 被无意改坏。
+- 防止重构后漏提交 docs/assets。
+- 外部贡献者提 PR 时，可以自动知道仓库基本功能是否还可用。
+- 不需要把 API key 放进 GitHub Actions，也能保持公开 release 的可信度。
 
 ## 限制
 

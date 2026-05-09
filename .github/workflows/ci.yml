@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Validate package and docs
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile script
+        run: python -m py_compile scripts/fact_check.py
+
+      - name: CLI help smoke test
+        run: python scripts/fact_check.py --help
+
+      - name: Import and router smoke test
+        run: |
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          spec = importlib.util.spec_from_file_location('audit', 'scripts/fact_check.py')
+          audit = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(audit)
+
+          cases = [
+              ('FEATURE', 'Tool Y can index local Markdown files'),
+              ('REQUIREMENT', 'This package requires Python 3.10+'),
+              ('COMPAT', 'Model Y works with OpenAI-compatible APIs'),
+              ('WORKFLOW', 'The tool first extracts claims and then routes evidence sources'),
+              ('EVAL', 'A is faster than B in benchmark X'),
+          ]
+          for claim_type, text in cases:
+              sources = audit.route_sources(claim_type, text, max_sources=4)
+              assert sources, (claim_type, text)
+              score, reasons = audit.claim_importance({'type': claim_type, 'text': text})
+              assert isinstance(score, int)
+              assert isinstance(reasons, list)
+
+          for path in [
+              'README.md',
+              'README.zh-CN.md',
+              'SKILL.md',
+              'docs/architecture.svg',
+              'examples/smoke.md',
+              'examples/demo-report.md',
+          ]:
+              assert Path(path).exists(), path
+
+          print('router_smoke_ok')
+          PY
+
+      - name: README language links
+        run: |
+          grep -q '\[English\](README.md) | \[简体中文\](README.zh-CN.md)' README.md
+          grep -q '\[English\](README.md) | \[简体中文\](README.zh-CN.md)' README.zh-CN.md
+
+      - name: Architecture SVG sanity check
+        run: |
+          grep -q '<svg' docs/architecture.svg
+          grep -q 'LLM Output Audit' docs/architecture.svg

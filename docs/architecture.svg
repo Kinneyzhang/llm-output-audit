@@ -1,0 +1,183 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">LLM Output Audit architecture</title>
+  <desc id="desc">Pipeline diagram showing draft input, claim extraction, audit mode policy, source router, parallel evidence gathering, evidence scoring, rating, edit suggestions, and revised output.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#020617"/>
+      <stop offset="55%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <radialGradient id="glowCyan" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowGreen" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#34d399" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#34d399" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width="0.7" opacity="0.7"/>
+    </pattern>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="13" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10Z" fill="#38bdf8"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10Z" fill="#34d399"/>
+    </marker>
+    <style>
+      .title{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:34px;font-weight:780;fill:#f8fafc;letter-spacing:-.6px}
+      .subtitle{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;fill:#94a3b8}
+      .label{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;font-weight:720;fill:#f8fafc}
+      .small{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;fill:#cbd5e1}
+      .tiny{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:11px;fill:#94a3b8}
+      .mono{font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:11px;fill:#bae6fd}
+      .box{rx:16;filter:url(#shadow)}
+      .stroke-cyan{stroke:#22d3ee}.stroke-green{stroke:#34d399}.stroke-violet{stroke:#a78bfa}.stroke-amber{stroke:#fbbf24}.stroke-rose{stroke:#fb7185}.stroke-slate{stroke:#94a3b8}
+      .flow{fill:none;stroke:#38bdf8;stroke-width:2.2;marker-end:url(#arrow);opacity:.92}
+      .flow-green{fill:none;stroke:#34d399;stroke-width:2.2;marker-end:url(#arrowGreen);opacity:.92}
+      .dash{stroke-dasharray:8 7}
+    </style>
+  </defs>
+
+  <rect width="1280" height="760" fill="url(#bg)"/>
+  <rect width="1280" height="760" fill="url(#grid)" opacity="0.7"/>
+  <circle cx="220" cy="150" r="260" fill="url(#glowCyan)"/>
+  <circle cx="1020" cy="520" r="280" fill="url(#glowGreen)"/>
+
+  <text x="64" y="66" class="title">LLM Output Audit</text>
+  <text x="64" y="94" class="subtitle">Evidence-backed audit pipeline for long-form LLM output: claims → routed sources → scored evidence → verdicts → edit suggestions.</text>
+
+  <!-- Main pipeline cards -->
+  <g transform="translate(64 142)">
+    <rect class="box stroke-cyan" width="180" height="104" fill="#082f49" fill-opacity="0.78" stroke-width="1.8"/>
+    <text x="22" y="34" class="label">Draft Output</text>
+    <text x="22" y="58" class="small">article / report</text>
+    <text x="22" y="78" class="small">README / wiki page</text>
+    <text x="22" y="96" class="mono">input.md</text>
+  </g>
+  <path class="flow" d="M244 194H315"/>
+
+  <g transform="translate(315 142)">
+    <rect class="box stroke-violet" width="190" height="104" fill="#2e1065" fill-opacity="0.74" stroke-width="1.8"/>
+    <text x="22" y="34" class="label">Claim Extraction</text>
+    <text x="22" y="58" class="small">atomic claims</text>
+    <text x="22" y="78" class="small">typed taxonomy</text>
+    <text x="22" y="96" class="mono">DATE / FEATURE / EVAL</text>
+  </g>
+  <path class="flow" d="M505 194H576"/>
+
+  <g transform="translate(576 142)">
+    <rect class="box stroke-amber" width="190" height="104" fill="#451a03" fill-opacity="0.70" stroke-width="1.8"/>
+    <text x="22" y="34" class="label">Audit Mode</text>
+    <text x="22" y="58" class="small">speed vs accuracy</text>
+    <text x="22" y="78" class="small">claim filtering</text>
+    <text x="22" y="96" class="mono">fast / spot / draft / full</text>
+  </g>
+  <path class="flow" d="M766 194H837"/>
+
+  <g transform="translate(837 142)">
+    <rect class="box stroke-green" width="190" height="104" fill="#064e3b" fill-opacity="0.72" stroke-width="1.8"/>
+    <text x="22" y="34" class="label">Source Router</text>
+    <text x="22" y="58" class="small">choose best evidence</text>
+    <text x="22" y="78" class="small">per claim type</text>
+    <text x="22" y="96" class="mono">rules + optional LLM</text>
+  </g>
+
+  <!-- Source cloud -->
+  <g transform="translate(690 318)">
+    <rect x="0" y="0" width="500" height="220" rx="22" fill="#0f172a" fill-opacity="0.78" stroke="#334155" stroke-width="1.5" stroke-dasharray="8 7"/>
+    <text x="24" y="34" class="label">Parallel Evidence Gathering</text>
+    <text x="24" y="57" class="tiny">source-level workers query independent channels concurrently</text>
+
+    <g transform="translate(24 82)">
+      <rect width="138" height="42" rx="10" fill="#172554" stroke="#60a5fa"/>
+      <text x="16" y="26" class="small">GitHub API</text>
+    </g>
+    <g transform="translate(180 82)">
+      <rect width="138" height="42" rx="10" fill="#3b0764" stroke="#c084fc"/>
+      <text x="16" y="26" class="small">npm / PyPI</text>
+    </g>
+    <g transform="translate(336 82)">
+      <rect width="138" height="42" rx="10" fill="#064e3b" stroke="#34d399"/>
+      <text x="16" y="26" class="small">Docs / README</text>
+    </g>
+    <g transform="translate(24 144)">
+      <rect width="138" height="42" rx="10" fill="#451a03" stroke="#fbbf24"/>
+      <text x="16" y="26" class="small">arXiv / Papers</text>
+    </g>
+    <g transform="translate(180 144)">
+      <rect width="138" height="42" rx="10" fill="#881337" stroke="#fb7185"/>
+      <text x="16" y="26" class="small">Web Search</text>
+    </g>
+    <g transform="translate(336 144)">
+      <rect width="138" height="42" rx="10" fill="#1e293b" stroke="#94a3b8"/>
+      <text x="16" y="26" class="small">Optional Wiki</text>
+    </g>
+  </g>
+  <path class="flow" d="M930 246 C930 280 940 294 940 318"/>
+
+  <!-- Bottom pipeline -->
+  <g transform="translate(64 594)">
+    <rect class="box stroke-slate" width="190" height="92" fill="#1e293b" fill-opacity="0.82" stroke-width="1.8"/>
+    <text x="22" y="33" class="label">Evidence Scoring</text>
+    <text x="22" y="57" class="small">authority • directness</text>
+    <text x="22" y="77" class="small">freshness weighted</text>
+  </g>
+  <g transform="translate(320 594)">
+    <rect class="box stroke-rose" width="190" height="92" fill="#4c0519" fill-opacity="0.70" stroke-width="1.8"/>
+    <text x="22" y="33" class="label">Risk Gates</text>
+    <text x="22" y="57" class="small">consistency check</text>
+    <text x="22" y="77" class="small">conditional adversarial</text>
+  </g>
+  <g transform="translate(576 594)">
+    <rect class="box stroke-violet" width="190" height="92" fill="#2e1065" fill-opacity="0.76" stroke-width="1.8"/>
+    <text x="22" y="33" class="label">Verdict + Edits</text>
+    <text x="22" y="57" class="small">confirmed / uncertain</text>
+    <text x="22" y="77" class="small">wrong / unsourced</text>
+  </g>
+  <g transform="translate(832 594)">
+    <rect class="box stroke-green" width="190" height="92" fill="#052e2b" fill-opacity="0.78" stroke-width="1.8"/>
+    <text x="22" y="33" class="label">Revised Output</text>
+    <text x="22" y="57" class="small">safer wording</text>
+    <text x="22" y="77" class="small">sources + caveats</text>
+  </g>
+
+  <path class="flow-green" d="M690 518 C520 552 330 552 190 594"/>
+  <path class="flow-green" d="M254 640H320"/>
+  <path class="flow-green" d="M510 640H576"/>
+  <path class="flow-green" d="M766 640H832"/>
+
+  <!-- Claim types strip -->
+  <g transform="translate(64 300)">
+    <rect width="560" height="210" rx="22" fill="#0f172a" fill-opacity="0.80" stroke="#334155" stroke-width="1.4"/>
+    <text x="24" y="34" class="label">First-class Claim Types</text>
+    <text x="24" y="58" class="tiny">not just numbers and dates — anything evidence-checkable can be audited</text>
+    <g transform="translate(24 84)">
+      <text class="mono" x="0" y="0">DATE</text>
+      <text class="mono" x="90" y="0">NUMBER</text>
+      <text class="mono" x="190" y="0">EVENT</text>
+      <text class="mono" x="290" y="0">ATTR</text>
+      <text class="mono" x="380" y="0">STATUS</text>
+      <text class="mono" x="0" y="42">FEATURE</text>
+      <text class="mono" x="120" y="42">REQUIREMENT</text>
+      <text class="mono" x="290" y="42">COMPAT</text>
+      <text class="mono" x="400" y="42">WORKFLOW</text>
+      <text class="mono" x="0" y="84">EVAL</text>
+      <text class="mono" x="90" y="84">CAUSAL</text>
+    </g>
+    <text x="24" y="186" class="tiny">Opinion-like claims are audited for support, caveats,</text>
+    <text x="24" y="202" class="tiny">and overconfidence — not declared objectively true.</text>
+  </g>
+  <path class="flow dash" d="M410 246 C410 272 344 276 344 300"/>
+
+  <!-- Legend -->
+  <g transform="translate(1050 626)">
+    <text x="0" y="0" class="tiny">Outputs</text>
+    <circle cx="8" cy="24" r="5" fill="#34d399"/><text x="22" y="28" class="tiny">actionable edits</text>
+    <circle cx="8" cy="48" r="5" fill="#38bdf8"/><text x="22" y="52" class="tiny">pipeline flow</text>
+    <circle cx="8" cy="72" r="5" fill="#fbbf24"/><text x="22" y="76" class="tiny">mode/risk control</text>
+  </g>
+</svg>
