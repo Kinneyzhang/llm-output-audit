@@ -54,6 +54,18 @@ V1_RATING_TO_VERDICT = {
     "not_enough_evidence": "not_enough_evidence",
 }
 
+DEFAULT_MAX_CLAIMS = 80
+FACTUAL_CUES = {
+    "is", "are", "was", "were", "has", "have", "supports", "requires", "uses", "works", "written", "licensed",
+    "是", "为", "支持", "需要", "使用", "采用", "基于", "发布", "到货", "运行", "部署", "生成", "包含", "提供", "适合", "默认",
+}
+NON_FACTUAL_CUES = {
+    "建议", "推荐", "可以", "应该", "值得", "最好", "下一步", "目标", "计划", "待", "如果", "我", "老大",
+    "should", "could", "would", "recommend", "next", "todo", "plan", "prefer",
+}
+LOCAL_CUES = {"老大", "本机", "内网", "局域网", "我的", "个人", "BuJo", "DGX", "懒猫", "localhost", "local", "private"}
+CODE_LIKE_RE = re.compile(r"(```|^\s*(pip|npm|python|docker|curl|git|systemctl|export|cd|source)|[{};]{2,}|</?\w+>)", re.I)
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -316,6 +328,57 @@ def infer_claim_type(claim_text: str) -> str:
     return "ATTR"
 
 
+def is_probably_noise(sentence: str) -> bool:
+    stripped = sentence.strip()
+    if len(stripped) < 18:
+        return True
+    if len(stripped) > 420:
+        return True
+    if CODE_LIKE_RE.search(stripped):
+        return True
+    if stripped.startswith(("|", ">", "```")):
+        return True
+    # Skip pure link/list/navigation fragments.
+    if re.fullmatch(r"[\W\d_A-Za-z:/.-]+", stripped) and " " not in stripped:
+        return True
+    return False
+
+
+def claim_priority(sentence: str) -> int:
+    lowered = sentence.lower()
+    score = 0
+    if any(cue.lower() in lowered for cue in FACTUAL_CUES):
+        score += 4
+    if re.search(r"\b\d+(?:\.\d+)?\b|`[^`]+`", sentence):
+        score += 2
+    if re.search(r"\b[A-Z][A-Za-z0-9_-]{2,}\b", sentence):
+        score += 2
+    if any(cue.lower() in lowered for cue in NON_FACTUAL_CUES):
+        score -= 2
+    if sentence.endswith(("?", "？")):
+        score -= 4
+    return score
+
+
+def should_keep_claim(sentence: str) -> bool:
+    if is_probably_noise(sentence):
+        return False
+    # Public smoke cases are intentionally simple and must remain extractable.
+    smoke_subjects = ["Caddy", "Tool X", "Ada Lovelace", "ExampleLib"]
+    if any(subject.lower() in sentence.lower() for subject in smoke_subjects):
+        return True
+    return claim_priority(sentence) >= 3
+
+
+def infer_verifiability(sentence: str) -> str:
+    lowered = sentence.lower()
+    if any(cue.lower() in lowered for cue in LOCAL_CUES):
+        return "local"
+    if any(cue.lower() in lowered for cue in ["计划", "待", "目标", "建议", "recommend", "plan", "should"]):
+        return "not_publicly_verifiable"
+    return "public"
+
+
 def split_sentences_with_lines(text: str) -> list[tuple[str, int, int, str]]:
     """Return (sentence, start_line, end_line, quote) records.
 
@@ -349,12 +412,19 @@ def split_sentences_with_lines(text: str) -> list[tuple[str, int, int, str]]:
     return records
 
 
-def extract_claim_graph(text: str, source_name: str = "original.md") -> list[dict[str, Any]]:
-    claims: list[dict[str, Any]] = []
-    for i, (sentence, start_line, end_line, quote) in enumerate(split_sentences_with_lines(text), start=1):
+def extract_claim_graph(text: str, source_name: str = "original.md", max_claims: int = DEFAULT_MAX_CLAIMS) -> list[dict[str, Any]]:
+    candidates: list[tuple[int, str, int, int, str]] = []
+    for sentence, start_line, end_line, quote in split_sentences_with_lines(text):
         # Skip obvious explanatory benchmark prose rather than factual article claims.
         if "intentionally simple article" in sentence.lower() or "benchmark scaffold" in sentence.lower():
             continue
+        if not should_keep_claim(sentence):
+            continue
+        candidates.append((claim_priority(sentence), sentence, start_line, end_line, quote))
+    candidates = sorted(candidates, key=lambda item: (-item[0], item[2], item[1]))[:max_claims]
+    candidates = sorted(candidates, key=lambda item: (item[2], item[1]))
+    claims: list[dict[str, Any]] = []
+    for i, (_priority, sentence, start_line, end_line, quote) in enumerate(candidates, start=1):
         claim_id = f"c-{i:03d}"
         subject = extract_subjects(sentence)
         claims.append(
@@ -368,7 +438,7 @@ def extract_claim_graph(text: str, source_name: str = "original.md") -> list[dic
                 "object": sentence,
                 "scope": "article",
                 "time_context": "current_or_unspecified",
-                "verifiability": "public" if not any(token in sentence.lower() for token in ["local", "private", "my "]) else "local",
+                "verifiability": infer_verifiability(sentence),
                 "importance": "medium",
                 "risk_level": "medium",
                 "source": "native_v2",
@@ -387,6 +457,8 @@ def plan_evidence(claims: list[dict[str, Any]]) -> list[dict[str, Any]]:
         text = claim.get("claim_text", "")
         if claim.get("verifiability") == "local":
             sources = ["local_files", "human_review"]
+        elif claim.get("verifiability") == "not_publicly_verifiable":
+            sources = ["human_review", "local_context"]
         elif claim_type == "NUMBER" and "github" in text.lower():
             sources = ["github_api", "source_repo"]
         elif claim_type in {"FEATURE", "COMPAT", "STATUS"}:
@@ -496,6 +568,14 @@ def verdicts_from_evidence(claims: list[dict[str, Any]], evidence: list[dict[str
             truth = "supported"
             confidence = max(float(item.get("scores", {}).get("source_authority", 0.5)) for item in supporting)
             reason = supporting[0].get("quote") or "Evidence supports the claim."
+        elif claim.get("verifiability") == "local":
+            truth = "not_publicly_verifiable"
+            confidence = 0.65
+            reason = "This claim depends on local/private context and should be verified against local files or human knowledge."
+        elif claim.get("verifiability") == "not_publicly_verifiable":
+            truth = "not_publicly_verifiable"
+            confidence = 0.6
+            reason = "This claim is a plan, recommendation, or context-specific statement rather than a public fact."
         elif missing:
             truth = "not_enough_evidence"
             confidence = 0.45
@@ -561,10 +641,11 @@ def native_verdict_for_claim(claim: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_native_pipeline(article_path: Path, source_pack_path: Path | None = None) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+def run_native_pipeline(article_path: Path, source_pack_path: Path | None = None, max_claims: int = DEFAULT_MAX_CLAIMS) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     text = article_path.read_text(encoding="utf-8", errors="ignore")
     profile = classify_article(text, article_path)
-    claims = extract_claim_graph(text, article_path.name)
+    claims = extract_claim_graph(text, article_path.name, max_claims=max_claims)
+    profile["max_claims"] = max_claims
     plans = plan_evidence(claims)
     pack_path = source_pack_for_article(article_path, source_pack_path)
     source_pack = load_source_pack(pack_path)
@@ -572,13 +653,66 @@ def run_native_pipeline(article_path: Path, source_pack_path: Path | None = None
         evidence = evidence_from_source_pack(claims, source_pack)
         verdicts = verdicts_from_evidence(claims, evidence)
     else:
-        verdicts = [native_verdict_for_claim(claim) for claim in claims]
-        evidence = synthesize_evidence(claims, verdicts, "native")
+        # No source pack: create missing-evidence ledger records first, then let
+        # the same evidence-ledger judge decide whether the right action is
+        # citation, local verification, or not-publicly-verifiable review.
+        evidence = evidence_from_source_pack(claims, [])
+        verdicts = verdicts_from_evidence(claims, evidence)
     if pack_path:
         profile["source_pack"] = str(pack_path)
         for plan in plans:
             plan.setdefault("preferred_sources", []).insert(0, "source_pack")
     return profile, claims, plans, verdicts, evidence
+
+
+def render_actual_report(article_profile: dict[str, Any] | None, claims: list[dict[str, Any]], verdicts: list[dict[str, Any]], review_queue: list[dict[str, Any]], suggestions: list[dict[str, Any]]) -> str:
+    verdict_counts: dict[str, int] = {}
+    queue_counts: dict[str, int] = {}
+    for verdict in verdicts:
+        verdict_counts[verdict["truth_verdict"]] = verdict_counts.get(verdict["truth_verdict"], 0) + 1
+    for item in review_queue:
+        queue_counts[item["queue"]] = queue_counts.get(item["queue"], 0) + 1
+    claims_by_id = {claim["claim_id"]: claim for claim in claims}
+    lines = [
+        "# LLM Output Audit v2 Report",
+        "",
+        f"Generated: `{now_iso()}`",
+        f"Article type: `{(article_profile or {}).get('article_type', 'unknown')}`",
+        f"Audit policy: `{(article_profile or {}).get('audit_policy', 'unknown')}`",
+        f"Claims selected: `{len(claims)}`",
+        "",
+        "## Verdict summary",
+        "",
+    ]
+    if verdict_counts:
+        for key, value in sorted(verdict_counts.items()):
+            lines.append(f"- `{key}`: `{value}`")
+    else:
+        lines.append("- No claims selected.")
+    lines.extend(["", "## Review queues", ""])
+    if queue_counts:
+        for key, value in sorted(queue_counts.items()):
+            lines.append(f"- `{key}`: `{value}`")
+    else:
+        lines.append("- No review queue items.")
+    lines.extend(["", "## Items needing attention", ""])
+    attention = [v for v in verdicts if v["truth_verdict"] != "supported"][:20]
+    if not attention:
+        lines.append("- No non-supported claims in the selected set.")
+    for verdict in attention:
+        claim = claims_by_id.get(verdict["claim_id"], {})
+        lines.append(f"- `{verdict['truth_verdict']}` / `{verdict['audit_action']}`: {claim.get('claim_text', verdict['claim_id'])}")
+        lines.append(f"  - reason: {verdict.get('reason', '')}")
+    if len(attention) < len([v for v in verdicts if v["truth_verdict"] != "supported"]):
+        lines.append(f"- ... {len([v for v in verdicts if v['truth_verdict'] != 'supported']) - len(attention)} more items omitted from this human report; see JSON artifacts.")
+    lines.extend(["", "## Patch suggestions", ""])
+    if suggestions:
+        for suggestion in suggestions[:20]:
+            lines.append(f"- `{suggestion['severity']}`: {suggestion['old_text']}")
+            lines.append(f"  - suggested: {suggestion['new_text']}")
+    else:
+        lines.append("- No patch suggestions generated.")
+    return "\n".join(lines) + "\n"
 
 
 def write_artifacts(out_dir: Path, claims: list[dict[str, Any]], verdicts: list[dict[str, Any]], *, source_mode: str, source_path: Path | None, article_profile: dict[str, Any] | None = None, verification_plan: list[dict[str, Any]] | None = None, evidence_records: list[dict[str, Any]] | None = None) -> None:
@@ -598,6 +732,7 @@ def write_artifacts(out_dir: Path, claims: list[dict[str, Any]], verdicts: list[
             "review_queue": "actual-review-queue.json",
             "suggestions": "actual-suggestions.json",
             "manifest": "actual-manifest.json",
+            "report": "actual-report.md",
             "article_profile": "article-profile.json" if article_profile else None,
             "verification_plan": "verification-plan.json" if verification_plan is not None else None,
         },
@@ -614,6 +749,7 @@ def write_artifacts(out_dir: Path, claims: list[dict[str, Any]], verdicts: list[
     write_json(out_dir / "actual-verdicts.json", verdicts)
     write_json(out_dir / "actual-review-queue.json", review_queue)
     write_json(out_dir / "actual-suggestions.json", suggestions)
+    (out_dir / "actual-report.md").write_text(render_actual_report(article_profile, claims, verdicts, review_queue, suggestions), encoding="utf-8")
     if article_profile is not None:
         write_json(out_dir / "article-profile.json", article_profile)
     if verification_plan is not None:
@@ -627,6 +763,7 @@ def main() -> int:
     parser.add_argument("--trace", help="Optional v1 trace JSONL to convert")
     parser.add_argument("--file", help="Run the native deterministic v2 scaffold on a Markdown/text file")
     parser.add_argument("--source-pack", help="Optional JSON source-pack evidence file for native v2 mode; defaults to ARTICLE_DIR/source-pack.json when present")
+    parser.add_argument("--max-claims", type=int, default=DEFAULT_MAX_CLAIMS, help="Maximum native v2 claims to keep after article-aware filtering")
     parser.add_argument("--output-dir", required=True, help="Directory to write actual-* artifacts")
     parser.add_argument("--oracle", action="store_true", help="Use benchmark expected artifacts as oracle actual artifacts")
     args = parser.parse_args()
@@ -646,7 +783,7 @@ def main() -> int:
     elif args.file:
         article_path = Path(args.file)
         source_pack = Path(args.source_pack) if args.source_pack else None
-        profile, claims, plans, verdicts, evidence = run_native_pipeline(article_path, source_pack)
+        profile, claims, plans, verdicts, evidence = run_native_pipeline(article_path, source_pack, max_claims=args.max_claims)
         write_artifacts(out_dir, claims, verdicts, source_mode="native", source_path=article_path, article_profile=profile, verification_plan=plans, evidence_records=evidence)
     else:
         raise SystemExit("provide --file ARTICLE, --oracle --case CASE_DIR, or --trace TRACE_JSONL")

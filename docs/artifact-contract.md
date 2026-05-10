@@ -12,6 +12,7 @@ actual-evidence.jsonl
 actual-verdicts.json
 actual-review-queue.json
 actual-suggestions.json
+actual-report.md
 actual-manifest.json
 ```
 
@@ -138,7 +139,7 @@ python3 scripts/audit_v2.py \
   --output-dir /tmp/loa-v2-artifacts/native-run
 ```
 
-This writes `article-profile.json` and `verification-plan.json` in addition to the evaluator-facing `actual-*` artifacts.
+This writes `article-profile.json`, `verification-plan.json`, and a human-readable `actual-report.md` in addition to the evaluator-facing `actual-*` JSON/JSONL artifacts. Native mode keeps at most `80` claims by default after article-aware filtering; override with `--max-claims N` when doing deeper review.
 
 Native mode can consume a deterministic source pack. If `ARTICLE_DIR/source-pack.json` exists, it is loaded automatically; otherwise pass it explicitly:
 

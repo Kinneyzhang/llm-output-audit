@@ -28,6 +28,7 @@ benchmark/cases/<case-id>/
   actual-verdicts.json
   actual-review-queue.json
   actual-suggestions.json
+  actual-report.md
   actual-manifest.json
 ```
 
