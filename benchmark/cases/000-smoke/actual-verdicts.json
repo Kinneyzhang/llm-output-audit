@@ -1,0 +1,8 @@
+[
+  {
+    "claim_id": "c-001",
+    "truth_verdict": "supported",
+    "audit_action": "keep",
+    "notes": "Should be verified from Caddy official docs or repository metadata."
+  }
+]

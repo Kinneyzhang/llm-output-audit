@@ -35,6 +35,8 @@ jobs:
           python -m py_compile scripts/fact_check.py
           python -m py_compile scripts/install_agent_skill.py
           python -m py_compile scripts/mcp_server.py
+          python -m py_compile scripts/eval_auditor.py
+          python -m py_compile benchmark/public/common_adapter.py benchmark/public/*/adapter.py
 
       - name: CLI help smoke test
         run: python scripts/fact_check.py --help
@@ -153,3 +155,24 @@ jobs:
         run: |
           grep -q '<svg' docs/architecture.svg
           grep -q 'LLM Output Audit' docs/architecture.svg
+
+      - name: v2 benchmark scaffold smoke test
+        run: |
+          python scripts/eval_auditor.py benchmark/cases --output /tmp/loa-benchmark-report.md --json-output /tmp/loa-benchmark-report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path('/tmp/loa-benchmark-report.json').read_text())
+          summary = payload['summary']
+          assert summary['case_count'] >= 8
+          assert summary['valid_case_count'] == summary['case_count']
+          assert summary['layers'].get('public_core', 0) >= 6
+          assert summary['layers'].get('technical_domain', 0) >= 2
+          assert summary['actual_available_count'] >= 8
+          assert summary['actual_metric_averages']['claim_precision'] == 1.0
+          assert summary['actual_metric_averages']['claim_recall'] == 1.0
+          assert summary['actual_metric_averages']['verdict_accuracy_on_shared_ids'] == 1.0
+          assert not summary['actual_failure_cases']
+          print('v2_benchmark_smoke_ok')
+          PY

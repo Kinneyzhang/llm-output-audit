@@ -1,0 +1,12 @@
+[
+  {
+    "claim_id": "c1",
+    "truth_verdict": "refuted",
+    "audit_action": "rewrite",
+    "evidence_ids": [
+      "e1"
+    ],
+    "confidence": 1.0,
+    "reason": "Dataset-provided label."
+  }
+]

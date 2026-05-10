@@ -1,0 +1,9 @@
+[
+  {
+    "claim_id": "c-001",
+    "claim_text": "Caddy is an open-source web server written in Go.",
+    "expected_subject": "Caddy",
+    "expected_claim_type": "ATTR",
+    "expected_verifiability": "public"
+  }
+]

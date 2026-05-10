@@ -1,0 +1,40 @@
+[
+  {
+    "claim_id": "c1",
+    "source_span": {
+      "file": "original.md",
+      "start_line": 1,
+      "end_line": 1,
+      "quote": "Ada Lovelace wrote notes on the Analytical Engine."
+    },
+    "claim_text": "Ada Lovelace wrote notes on the Analytical Engine.",
+    "claim_type": "ATTR",
+    "subject": "unknown",
+    "predicate": "unknown",
+    "object": "Ada Lovelace wrote notes on the Analytical Engine.",
+    "scope": "dataset-provided",
+    "time_context": "dataset-provided",
+    "verifiability": "public",
+    "importance": "medium",
+    "risk_level": "medium"
+  },
+  {
+    "claim_id": "c2",
+    "source_span": {
+      "file": "original.md",
+      "start_line": 1,
+      "end_line": 1,
+      "quote": "Ada Lovelace invented the C programming language."
+    },
+    "claim_text": "Ada Lovelace invented the C programming language.",
+    "claim_type": "ATTR",
+    "subject": "unknown",
+    "predicate": "unknown",
+    "object": "Ada Lovelace invented the C programming language.",
+    "scope": "dataset-provided",
+    "time_context": "dataset-provided",
+    "verifiability": "public",
+    "importance": "medium",
+    "risk_level": "medium"
+  }
+]

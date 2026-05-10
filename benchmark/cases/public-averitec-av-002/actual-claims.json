@@ -1,0 +1,21 @@
+[
+  {
+    "claim_id": "c1",
+    "source_span": {
+      "file": "original.md",
+      "start_line": 1,
+      "end_line": 1,
+      "quote": "The project has no web interface."
+    },
+    "claim_text": "The project has no web interface.",
+    "claim_type": "OTHER",
+    "subject": "unknown",
+    "predicate": "unknown",
+    "object": "The project has no web interface.",
+    "scope": "dataset-provided",
+    "time_context": "dataset-provided",
+    "verifiability": "public",
+    "importance": "medium",
+    "risk_level": "medium"
+  }
+]

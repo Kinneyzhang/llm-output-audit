@@ -1,0 +1,12 @@
+[
+  {
+    "claim_id": "c1",
+    "truth_verdict": "refuted",
+    "audit_action": "rewrite",
+    "evidence_ids": [
+      "qa1"
+    ],
+    "confidence": 1.0,
+    "reason": "Evidence contradicts the no-web-interface claim."
+  }
+]

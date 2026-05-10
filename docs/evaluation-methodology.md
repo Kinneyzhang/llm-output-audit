@@ -158,6 +158,8 @@ Full LLM-backed evaluation can run locally or in a private environment.
 - metric summary
 - parsed human-review scorecards when available
 - aggregate scorecard counts
+- layer and source-dataset distribution
+- actual-vs-expected artifact metrics when `actual-claims.json` / `actual-verdicts.json` exist
 - risky cases by quality dimension
 - product decisions grouped across cases
 - failures by layer

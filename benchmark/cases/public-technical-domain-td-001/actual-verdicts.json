@@ -1,0 +1,22 @@
+[
+  {
+    "claim_id": "c1",
+    "truth_verdict": "supported",
+    "audit_action": "keep",
+    "evidence_ids": [
+      "repo-file-config"
+    ],
+    "confidence": 1.0,
+    "reason": "Technical-domain expected label."
+  },
+  {
+    "claim_id": "c2",
+    "truth_verdict": "not_enough_evidence",
+    "audit_action": "human_review",
+    "evidence_ids": [
+      "e2"
+    ],
+    "confidence": 1.0,
+    "reason": "Synthetic case requires deterministic GitHub metadata; no live repo is provided."
+  }
+]

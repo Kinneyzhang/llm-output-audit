@@ -84,6 +84,10 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     quality_counts: dict[str, Counter[str]] = {field: Counter() for field in QUALITY_FIELDS}
     risky_cases: list[dict[str, Any]] = []
     product_decisions: Counter[str] = Counter()
+    actual_available_count = 0
+    actual_metric_sums: Counter[str] = Counter()
+    actual_metric_denominators: Counter[str] = Counter()
+    actual_failure_cases: list[dict[str, Any]] = []
     by_article_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for result in results:
@@ -110,6 +114,24 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
             )
         if scorecard.get("product_decision"):
             product_decisions[scorecard["product_decision"]] += 1
+        comparison = result.get("actual_comparison") or {}
+        if comparison.get("available"):
+            actual_available_count += 1
+            for field in ["claim_precision", "claim_recall", "verdict_accuracy_on_shared_ids"]:
+                actual_metric_sums[field] += float(comparison.get(field, 0.0))
+                actual_metric_denominators[field] += 1
+            if (
+                comparison.get("claim_recall", 1.0) < 1.0
+                or comparison.get("verdict_accuracy_on_shared_ids", 1.0) < 1.0
+                or comparison.get("refuted_false_positive_candidate_count", 0)
+            ):
+                actual_failure_cases.append({
+                    "case_id": result["case_id"],
+                    "claim_precision": comparison.get("claim_precision"),
+                    "claim_recall": comparison.get("claim_recall"),
+                    "verdict_accuracy_on_shared_ids": comparison.get("verdict_accuracy_on_shared_ids"),
+                    "refuted_false_positive_candidate_count": comparison.get("refuted_false_positive_candidate_count", 0),
+                })
 
     type_quality: dict[str, dict[str, float]] = {}
     for article_type, items in by_article_type.items():
@@ -128,10 +150,89 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
         "type_quality": type_quality,
         "risky_cases": risky_cases,
         "product_decisions": dict(product_decisions),
+        "actual_available_count": actual_available_count,
+        "actual_metric_averages": {
+            field: round(actual_metric_sums[field] / actual_metric_denominators[field], 4)
+            for field in actual_metric_sums
+            if actual_metric_denominators[field]
+        },
+        "actual_failure_cases": actual_failure_cases,
     }
 
 
-def validate_case(case_dir: Path) -> dict[str, Any]:
+def normalize_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip().lower())
+
+
+def find_artifact(case_dir: Path, name: str, actual_root: Path | None = None) -> Path | None:
+    candidates = []
+    if actual_root is not None:
+        candidates.append(actual_root / case_dir.name / name)
+    candidates.append(case_dir / name)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def compare_actual_artifacts(
+    case_dir: Path,
+    expected_claims: list[dict[str, Any]],
+    expected_verdicts: list[dict[str, Any]],
+    actual_root: Path | None = None,
+) -> dict[str, Any]:
+    actual_claims_path = find_artifact(case_dir, "actual-claims.json", actual_root)
+    actual_verdicts_path = find_artifact(case_dir, "actual-verdicts.json", actual_root)
+    comparison: dict[str, Any] = {
+        "available": bool(actual_claims_path and actual_verdicts_path),
+        "actual_claims_path": str(actual_claims_path) if actual_claims_path else None,
+        "actual_verdicts_path": str(actual_verdicts_path) if actual_verdicts_path else None,
+    }
+    if not comparison["available"]:
+        return comparison
+
+    actual_claims = load_json(actual_claims_path)  # type: ignore[arg-type]
+    actual_verdicts = load_json(actual_verdicts_path)  # type: ignore[arg-type]
+
+    expected_claim_texts = {normalize_text(item.get("claim_text", "")) for item in expected_claims}
+    actual_claim_texts = {normalize_text(item.get("claim_text", "")) for item in actual_claims}
+    claim_matches = expected_claim_texts & actual_claim_texts
+    expected_by_id = {item.get("claim_id"): item for item in expected_verdicts}
+    actual_by_id = {item.get("claim_id"): item for item in actual_verdicts}
+    shared_ids = set(expected_by_id) & set(actual_by_id)
+    verdict_matches = [
+        cid
+        for cid in shared_ids
+        if expected_by_id[cid].get("truth_verdict") == actual_by_id[cid].get("truth_verdict")
+    ]
+    refuted_false_positive_candidates = [
+        cid
+        for cid in shared_ids
+        if actual_by_id[cid].get("truth_verdict") == "refuted"
+        and expected_by_id[cid].get("truth_verdict") != "refuted"
+    ]
+    comparison.update(
+        {
+            "expected_claim_count": len(expected_claims),
+            "actual_claim_count": len(actual_claims),
+            "claim_text_match_count": len(claim_matches),
+            "claim_precision": round(len(claim_matches) / len(actual_claim_texts), 4) if actual_claim_texts else 0.0,
+            "claim_recall": round(len(claim_matches) / len(expected_claim_texts), 4) if expected_claim_texts else 0.0,
+            "expected_verdict_count": len(expected_verdicts),
+            "actual_verdict_count": len(actual_verdicts),
+            "verdict_shared_id_count": len(shared_ids),
+            "verdict_match_count": len(verdict_matches),
+            "verdict_accuracy_on_shared_ids": round(len(verdict_matches) / len(shared_ids), 4) if shared_ids else 0.0,
+            "refuted_false_positive_candidate_count": len(refuted_false_positive_candidates),
+            "refuted_false_positive_candidates": sorted(refuted_false_positive_candidates),
+            "missing_expected_claim_texts": sorted(expected_claim_texts - actual_claim_texts),
+            "extra_actual_claim_texts": sorted(actual_claim_texts - expected_claim_texts),
+        }
+    )
+    return comparison
+
+
+def validate_case(case_dir: Path, actual_root: Path | None = None) -> dict[str, Any]:
     missing = [name for name in REQUIRED_CASE_FILES if not (case_dir / name).exists()]
     result: dict[str, Any] = {
         "case_id": case_dir.name,
@@ -146,6 +247,7 @@ def validate_case(case_dir: Path) -> dict[str, Any]:
     expected_claims = load_json(case_dir / "expected-claims.json")
     expected_verdicts = load_json(case_dir / "expected-verdicts.json")
     scorecard = parse_scorecard((case_dir / "human-review.md").read_text(encoding="utf-8"))
+    actual_comparison = compare_actual_artifacts(case_dir, expected_claims, expected_verdicts, actual_root)
 
     result.update(
         {
@@ -158,6 +260,7 @@ def validate_case(case_dir: Path) -> dict[str, Any]:
             "expected_verdicts": len(expected_verdicts),
             "visibility": metadata.get("visibility"),
             "scorecard": scorecard,
+            "actual_comparison": actual_comparison,
         }
     )
     if len(expected_claims) != len(expected_verdicts):
@@ -207,6 +310,18 @@ def render_markdown(results: list[dict[str, Any]]) -> str:
             lines.append(f"  - decision: {item['product_decision']}")
     else:
         lines.append("- No risky dimensions found in parsed scorecards.")
+    lines.extend(["", "### Actual artifact comparison", ""])
+    lines.append(f"- cases with actual artifacts: `{summary['actual_available_count']}`")
+    if summary["actual_metric_averages"]:
+        for field, value in sorted(summary["actual_metric_averages"].items()):
+            lines.append(f"- average `{field}`: `{value}`")
+    else:
+        lines.append("- no actual artifacts available")
+    if summary["actual_failure_cases"]:
+        lines.append("- failure candidates:")
+        for item in summary["actual_failure_cases"]:
+            lines.append(f"  - `{item['case_id']}`: claim_recall=`{item['claim_recall']}`, verdict_accuracy=`{item['verdict_accuracy_on_shared_ids']}`, false_refuted_candidates=`{item['refuted_false_positive_candidate_count']}`")
+
     lines.extend(["", "### Product decisions", ""])
     if summary["product_decisions"]:
         for decision, count in sorted(summary["product_decisions"].items()):
@@ -232,6 +347,13 @@ def render_markdown(results: list[dict[str, Any]]) -> str:
         if "expected_claims" in r:
             lines.append(f"  - expected claims: `{r['expected_claims']}`")
             lines.append(f"  - expected verdicts: `{r['expected_verdicts']}`")
+        if r.get("actual_comparison", {}).get("available"):
+            cmp = r["actual_comparison"]
+            lines.append("  - actual comparison:")
+            lines.append(f"    - claim precision: `{cmp['claim_precision']}`")
+            lines.append(f"    - claim recall: `{cmp['claim_recall']}`")
+            lines.append(f"    - verdict accuracy on shared IDs: `{cmp['verdict_accuracy_on_shared_ids']}`")
+            lines.append(f"    - refuted false-positive candidates: `{cmp['refuted_false_positive_candidate_count']}`")
         if r.get("scorecard"):
             lines.append("  - scorecard:")
             for key, value in sorted(r["scorecard"].items()):
@@ -241,7 +363,7 @@ def render_markdown(results: list[dict[str, Any]]) -> str:
             "",
             "## Notes",
             "",
-            "This scaffold evaluator validates benchmark structure only. Future v2 work should compare actual audit artifacts against expected claims, evidence, verdicts, and suggestions.",
+            "This evaluator validates benchmark structure and, when actual artifacts are present, compares actual claims/verdicts against expected claims/verdicts. It still does not call an LLM or external services.",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -252,13 +374,15 @@ def main() -> int:
     parser.add_argument("cases", help="Directory containing benchmark case directories")
     parser.add_argument("--output", help="Markdown report path")
     parser.add_argument("--json-output", help="JSON summary path")
+    parser.add_argument("--actual-root", help="Optional directory containing per-case actual-claims.json and actual-verdicts.json artifacts")
     args = parser.parse_args()
 
     cases_root = Path(args.cases)
     if not cases_root.exists():
         raise SystemExit(f"cases directory not found: {cases_root}")
     case_dirs = sorted(p for p in cases_root.iterdir() if p.is_dir())
-    results = [validate_case(p) for p in case_dirs]
+    actual_root = Path(args.actual_root) if args.actual_root else None
+    results = [validate_case(p, actual_root) for p in case_dirs]
 
     report = render_markdown(results)
     if args.output:
