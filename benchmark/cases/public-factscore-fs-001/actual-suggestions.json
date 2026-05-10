@@ -1,0 +1,14 @@
+[
+  {
+    "suggestion_id": "s-c2",
+    "claim_id": "c2",
+    "severity": "must_fix",
+    "old_text": "Ada Lovelace invented the C programming language.",
+    "new_text": "[needs correction] Ada Lovelace invented the C programming language.",
+    "reason": "C was developed in the 1970s by Dennis Ritchie.",
+    "evidence_ids": [
+      "e2"
+    ],
+    "safe_to_apply": false
+  }
+]

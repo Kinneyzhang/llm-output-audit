@@ -1,0 +1,26 @@
+[
+  {
+    "review_id": "r-c1",
+    "claim_id": "c1",
+    "queue": "Safe",
+    "rubric": [
+      "truth_verdict",
+      "evidence_coverage",
+      "source_authority"
+    ],
+    "status": "ignored",
+    "reviewer_decision": null
+  },
+  {
+    "review_id": "r-c2",
+    "claim_id": "c2",
+    "queue": "Must Fix",
+    "rubric": [
+      "truth_verdict",
+      "evidence_coverage",
+      "source_authority"
+    ],
+    "status": "pending",
+    "reviewer_decision": null
+  }
+]

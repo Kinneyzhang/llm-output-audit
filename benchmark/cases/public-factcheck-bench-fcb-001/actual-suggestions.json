@@ -1,0 +1,14 @@
+[
+  {
+    "suggestion_id": "s-c2",
+    "claim_id": "c2",
+    "severity": "must_fix",
+    "old_text": "Tool X only works on Windows.",
+    "new_text": "[needs correction] Tool X only works on Windows.",
+    "reason": "Documentation lists Linux and macOS support.",
+    "evidence_ids": [
+      "e2"
+    ],
+    "safe_to_apply": false
+  }
+]

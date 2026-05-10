@@ -1,0 +1,14 @@
+[
+  {
+    "review_id": "r-c1",
+    "claim_id": "c1",
+    "queue": "Must Fix",
+    "rubric": [
+      "truth_verdict",
+      "evidence_coverage",
+      "source_authority"
+    ],
+    "status": "pending",
+    "reviewer_decision": null
+  }
+]

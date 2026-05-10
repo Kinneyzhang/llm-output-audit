@@ -37,18 +37,25 @@ The current v1 CLI remains the stable baseline. v2 adds structured artifacts bes
 
 ## 3. Core artifacts
 
-v2 audit output should be an artifact directory:
+v2 audit output should be an artifact directory. The current evaluator-facing contract is documented in [`artifact-contract.md`](artifact-contract.md) and uses `actual-*` file names so benchmark expected files and auditor outputs can live side by side:
+
+```text
+audit-artifacts/
+  actual-claims.json
+  actual-evidence.jsonl
+  actual-verdicts.json
+  actual-review-queue.json
+  actual-suggestions.json
+  actual-manifest.json
+```
+
+The native v2 engine may also emit richer intermediate planning files later:
 
 ```text
 audit-artifacts/
   article-profile.json
-  claims.json
   verification-plan.json
   verification-questions.json
-  evidence.jsonl
-  verdicts.json
-  review-queue.json
-  suggestions.json
   audit-report.md
   trace.jsonl
 ```

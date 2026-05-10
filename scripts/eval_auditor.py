@@ -88,6 +88,9 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     actual_metric_sums: Counter[str] = Counter()
     actual_metric_denominators: Counter[str] = Counter()
     actual_failure_cases: list[dict[str, Any]] = []
+    actual_artifact_counts: Counter[str] = Counter()
+    actual_queue_counts: Counter[str] = Counter()
+    actual_suggestion_severity_counts: Counter[str] = Counter()
     by_article_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for result in results:
@@ -117,6 +120,13 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
         comparison = result.get("actual_comparison") or {}
         if comparison.get("available"):
             actual_available_count += 1
+            for artifact_name, present in (comparison.get("artifact_presence") or {}).items():
+                if present:
+                    actual_artifact_counts[artifact_name] += 1
+            for queue, count in (comparison.get("review_queue_counts") or {}).items():
+                actual_queue_counts[queue] += count
+            for severity, count in (comparison.get("suggestion_severity_counts") or {}).items():
+                actual_suggestion_severity_counts[severity] += count
             for field in ["claim_precision", "claim_recall", "verdict_accuracy_on_shared_ids"]:
                 actual_metric_sums[field] += float(comparison.get(field, 0.0))
                 actual_metric_denominators[field] += 1
@@ -157,6 +167,9 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
             if actual_metric_denominators[field]
         },
         "actual_failure_cases": actual_failure_cases,
+        "actual_artifact_counts": dict(actual_artifact_counts),
+        "actual_queue_counts": dict(actual_queue_counts),
+        "actual_suggestion_severity_counts": dict(actual_suggestion_severity_counts),
     }
 
 
@@ -183,16 +196,33 @@ def compare_actual_artifacts(
 ) -> dict[str, Any]:
     actual_claims_path = find_artifact(case_dir, "actual-claims.json", actual_root)
     actual_verdicts_path = find_artifact(case_dir, "actual-verdicts.json", actual_root)
+    actual_evidence_path = find_artifact(case_dir, "actual-evidence.jsonl", actual_root)
+    actual_review_path = find_artifact(case_dir, "actual-review-queue.json", actual_root)
+    actual_suggestions_path = find_artifact(case_dir, "actual-suggestions.json", actual_root)
+    actual_manifest_path = find_artifact(case_dir, "actual-manifest.json", actual_root)
     comparison: dict[str, Any] = {
         "available": bool(actual_claims_path and actual_verdicts_path),
         "actual_claims_path": str(actual_claims_path) if actual_claims_path else None,
         "actual_verdicts_path": str(actual_verdicts_path) if actual_verdicts_path else None,
+        "artifact_presence": {
+            "claims": bool(actual_claims_path),
+            "evidence": bool(actual_evidence_path),
+            "verdicts": bool(actual_verdicts_path),
+            "review_queue": bool(actual_review_path),
+            "suggestions": bool(actual_suggestions_path),
+            "manifest": bool(actual_manifest_path),
+        },
     }
     if not comparison["available"]:
         return comparison
 
     actual_claims = load_json(actual_claims_path)  # type: ignore[arg-type]
     actual_verdicts = load_json(actual_verdicts_path)  # type: ignore[arg-type]
+    actual_review_queue = load_json(actual_review_path) if actual_review_path else []
+    actual_suggestions = load_json(actual_suggestions_path) if actual_suggestions_path else []
+    evidence_count = 0
+    if actual_evidence_path:
+        evidence_count = sum(1 for line in actual_evidence_path.read_text(encoding="utf-8").splitlines() if line.strip())
 
     expected_claim_texts = {normalize_text(item.get("claim_text", "")) for item in expected_claims}
     actual_claim_texts = {normalize_text(item.get("claim_text", "")) for item in actual_claims}
@@ -225,6 +255,11 @@ def compare_actual_artifacts(
             "verdict_accuracy_on_shared_ids": round(len(verdict_matches) / len(shared_ids), 4) if shared_ids else 0.0,
             "refuted_false_positive_candidate_count": len(refuted_false_positive_candidates),
             "refuted_false_positive_candidates": sorted(refuted_false_positive_candidates),
+            "actual_evidence_count": evidence_count,
+            "actual_review_queue_count": len(actual_review_queue),
+            "actual_suggestion_count": len(actual_suggestions),
+            "review_queue_counts": dict(Counter(item.get("queue", "unknown") for item in actual_review_queue)),
+            "suggestion_severity_counts": dict(Counter(item.get("severity", "unknown") for item in actual_suggestions)),
             "missing_expected_claim_texts": sorted(expected_claim_texts - actual_claim_texts),
             "extra_actual_claim_texts": sorted(actual_claim_texts - expected_claim_texts),
         }
@@ -317,6 +352,15 @@ def render_markdown(results: list[dict[str, Any]]) -> str:
             lines.append(f"- average `{field}`: `{value}`")
     else:
         lines.append("- no actual artifacts available")
+    if summary["actual_artifact_counts"]:
+        rendered = ", ".join(f"`{key}`={value}" for key, value in sorted(summary["actual_artifact_counts"].items()))
+        lines.append(f"- artifact coverage: {rendered}")
+    if summary["actual_queue_counts"]:
+        rendered = ", ".join(f"`{key}`={value}" for key, value in sorted(summary["actual_queue_counts"].items()))
+        lines.append(f"- review queues: {rendered}")
+    if summary["actual_suggestion_severity_counts"]:
+        rendered = ", ".join(f"`{key}`={value}" for key, value in sorted(summary["actual_suggestion_severity_counts"].items()))
+        lines.append(f"- suggestion severities: {rendered}")
     if summary["actual_failure_cases"]:
         lines.append("- failure candidates:")
         for item in summary["actual_failure_cases"]:
@@ -354,6 +398,9 @@ def render_markdown(results: list[dict[str, Any]]) -> str:
             lines.append(f"    - claim recall: `{cmp['claim_recall']}`")
             lines.append(f"    - verdict accuracy on shared IDs: `{cmp['verdict_accuracy_on_shared_ids']}`")
             lines.append(f"    - refuted false-positive candidates: `{cmp['refuted_false_positive_candidate_count']}`")
+            lines.append(f"    - evidence records: `{cmp.get('actual_evidence_count', 0)}`")
+            lines.append(f"    - review queue items: `{cmp.get('actual_review_queue_count', 0)}`")
+            lines.append(f"    - suggestion items: `{cmp.get('actual_suggestion_count', 0)}`")
         if r.get("scorecard"):
             lines.append("  - scorecard:")
             for key, value in sorted(r["scorecard"].items()):

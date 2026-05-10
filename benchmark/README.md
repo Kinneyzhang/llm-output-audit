@@ -18,6 +18,14 @@ benchmark/cases/<case-id>/
   expected-verdicts.json
   human-review.md
   notes.md
+
+  # Optional actual auditor outputs, committed only for public smoke cases.
+  actual-claims.json
+  actual-evidence.jsonl
+  actual-verdicts.json
+  actual-review-queue.json
+  actual-suggestions.json
+  actual-manifest.json
 ```
 
 ## Evaluation layers
@@ -26,6 +34,23 @@ benchmark/cases/<case-id>/
 2. Evidence planning/retrieval
 3. Verdict judging
 4. Suggestion usefulness/safety
+
+## v2 artifact contract
+
+See [`docs/artifact-contract.md`](../docs/artifact-contract.md) for the normalized `actual-*` files. The short version: any auditor implementation can be evaluated if it writes `actual-claims.json`, `actual-evidence.jsonl`, `actual-verdicts.json`, `actual-review-queue.json`, and `actual-suggestions.json`.
+
+Generate oracle smoke artifacts for a case:
+
+```bash
+python3 scripts/audit_v2.py --case benchmark/cases/000-smoke --oracle --output-dir /tmp/loa-v2/000-smoke
+```
+
+Evaluate case-local or external actual artifacts:
+
+```bash
+python3 scripts/eval_auditor.py benchmark/cases --output /tmp/eval.md --json-output /tmp/eval.json
+python3 scripts/eval_auditor.py benchmark/cases --actual-root /tmp/loa-v2 --output /tmp/eval.md --json-output /tmp/eval.json
+```
 
 ## Local private seeds
 

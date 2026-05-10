@@ -1,0 +1,14 @@
+[
+  {
+    "review_id": "r-c-001",
+    "claim_id": "c-001",
+    "queue": "Safe",
+    "rubric": [
+      "truth_verdict",
+      "evidence_coverage",
+      "source_authority"
+    ],
+    "status": "ignored",
+    "reviewer_decision": null
+  }
+]

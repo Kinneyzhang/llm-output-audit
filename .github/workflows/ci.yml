@@ -36,6 +36,7 @@ jobs:
           python -m py_compile scripts/install_agent_skill.py
           python -m py_compile scripts/mcp_server.py
           python -m py_compile scripts/eval_auditor.py
+          python -m py_compile scripts/audit_v2.py
           python -m py_compile scripts/build_public_benchmark.py
           python -m py_compile benchmark/public/common_adapter.py benchmark/public/*/adapter.py
 
@@ -160,7 +161,10 @@ jobs:
       - name: v2 benchmark scaffold smoke test
         run: |
           python scripts/build_public_benchmark.py --output /tmp/loa-public-cases --clean-public
-          python scripts/eval_auditor.py /tmp/loa-public-cases --output /tmp/loa-built-benchmark-report.md --json-output /tmp/loa-built-benchmark-report.json
+          for case in /tmp/loa-public-cases/*; do
+            python scripts/audit_v2.py --case "$case" --oracle --output-dir "/tmp/loa-v2-actual/$(basename "$case")"
+          done
+          python scripts/eval_auditor.py /tmp/loa-public-cases --actual-root /tmp/loa-v2-actual --output /tmp/loa-built-benchmark-report.md --json-output /tmp/loa-built-benchmark-report.json
           python scripts/eval_auditor.py benchmark/cases --output /tmp/loa-benchmark-report.md --json-output /tmp/loa-benchmark-report.json
           python - <<'PY'
           import json
@@ -171,6 +175,14 @@ jobs:
           assert built['valid_case_count'] == 7
           assert built['layers'].get('public_core', 0) == 6
           assert built['layers'].get('technical_domain', 0) == 1
+          assert built['actual_available_count'] == 7
+          assert built['actual_metric_averages']['claim_precision'] == 1.0
+          assert built['actual_metric_averages']['claim_recall'] == 1.0
+          assert built['actual_metric_averages']['verdict_accuracy_on_shared_ids'] == 1.0
+          assert built['actual_artifact_counts']['evidence'] == 7
+          assert built['actual_artifact_counts']['review_queue'] == 7
+          assert built['actual_artifact_counts']['suggestions'] == 7
+          assert built['actual_artifact_counts']['manifest'] == 7
 
           payload = json.loads(Path('/tmp/loa-benchmark-report.json').read_text())
           summary = payload['summary']

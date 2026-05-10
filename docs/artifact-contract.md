@@ -1,0 +1,171 @@
+# v2 Artifact Contract
+
+`llm-output-audit` v2 separates the auditor pipeline from evaluation by requiring every auditor run to emit normalized artifacts. The evaluator can score any implementation that writes this contract, whether the implementation is the legacy v1 CLI, a native v2 pipeline, an MCP tool, or a benchmark oracle smoke run.
+
+## Directory layout
+
+A run directory contains:
+
+```text
+actual-claims.json
+actual-evidence.jsonl
+actual-verdicts.json
+actual-review-queue.json
+actual-suggestions.json
+actual-manifest.json
+```
+
+Benchmark cases use the same names inside each case directory or under an external `--actual-root/<case-id>/` directory.
+
+## Artifacts
+
+### `actual-claims.json`
+
+Array of normalized atomic claims.
+
+Required practical fields:
+
+- `claim_id`: stable ID such as `c-001`
+- `claim_text`: exact claim text
+- `claim_type`: e.g. `ATTR`, `STATUS`, `NUMBER`, `FEATURE`
+- `subject`: main entity when known
+- `verifiability`: `public`, `local`, `mixed`, or `unknown`
+
+The evaluator currently compares claim text overlap with `expected-claims.json`.
+
+### `actual-evidence.jsonl`
+
+One JSON object per evidence record.
+
+Required practical fields follow `benchmark/schemas/evidence.schema.json`:
+
+- `evidence_id`
+- `claim_id`
+- `source_type`
+- `authority`
+- `subject_match`
+- `quote`
+- `retrieved_at`
+- `supports`
+- `contradicts`
+- `scores`
+
+This is the v2 Evidence Ledger. Future judges must cite evidence IDs, not free-form snippets.
+
+### `actual-verdicts.json`
+
+Array of verdict records, one per audited claim.
+
+Required practical fields follow `benchmark/schemas/verdicts.schema.json`:
+
+- `claim_id`
+- `truth_verdict`
+- `audit_action`
+- `evidence_ids`
+- `confidence`
+- `reason`
+
+Allowed `truth_verdict` values:
+
+- `supported`
+- `partially_supported`
+- `refuted`
+- `not_enough_evidence`
+- `conflicting_evidence`
+- `not_publicly_verifiable`
+- `not_a_factual_claim`
+
+The evaluator compares actual verdicts with `expected-verdicts.json` on shared claim IDs.
+
+### `actual-review-queue.json`
+
+Human review work queue. This is how v2 avoids pretending every case can be auto-decided.
+
+Common queues:
+
+- `Must Fix`
+- `Should Fix`
+- `Needs Citation`
+- `Needs Local Verification`
+- `Human Review`
+- `Safe`
+- `Ignored`
+
+### `actual-suggestions.json`
+
+Patch-ready edit suggestions.
+
+Common severities:
+
+- `must_fix`
+- `should_fix`
+- `citation_needed`
+- `local_verify`
+- `optional`
+- `none`
+
+Suggestions may be conservative. `safe_to_apply: true` should only be used for low-risk citation/hedging edits, not factual rewrites that require human judgment.
+
+### `actual-manifest.json`
+
+Run metadata:
+
+- contract version
+- generation time
+- source mode
+- source path
+- artifact file names
+- artifact counts
+
+## Current writer
+
+`scripts/audit_v2.py` is the first deterministic writer.
+
+Benchmark oracle smoke run:
+
+```bash
+python3 scripts/audit_v2.py \
+  --case benchmark/cases/000-smoke \
+  --oracle \
+  --output-dir /tmp/loa-v2-artifacts/000-smoke
+```
+
+V1 trace conversion:
+
+```bash
+python3 scripts/audit_v2.py \
+  --trace path/to/trace.jsonl \
+  --output-dir /tmp/loa-v2-artifacts/from-v1
+```
+
+## Evaluation
+
+Run evaluator against committed case-local artifacts:
+
+```bash
+python3 scripts/eval_auditor.py benchmark/cases \
+  --output /tmp/loa-v2-eval.md \
+  --json-output /tmp/loa-v2-eval.json
+```
+
+Run evaluator against external artifacts:
+
+```bash
+python3 scripts/eval_auditor.py benchmark/cases \
+  --actual-root /tmp/loa-v2-artifacts \
+  --output /tmp/loa-v2-eval.md \
+  --json-output /tmp/loa-v2-eval.json
+```
+
+The evaluator reports:
+
+- claim precision/recall
+- verdict accuracy on shared IDs
+- refuted false-positive candidates
+- artifact coverage
+- review queue counts
+- suggestion severity counts
+
+## Product rule
+
+Every future v2 auditor change should be judged by artifacts and benchmark deltas, not by a manually inspected Markdown report alone.

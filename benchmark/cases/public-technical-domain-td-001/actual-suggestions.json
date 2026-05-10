@@ -1,0 +1,14 @@
+[
+  {
+    "suggestion_id": "s-c2",
+    "claim_id": "c2",
+    "severity": "citation_needed",
+    "old_text": "ExampleLib has exactly 10 GitHub stars.",
+    "new_text": "ExampleLib has exactly 10 GitHub stars. [citation needed]",
+    "reason": "Synthetic case requires deterministic GitHub metadata; no live repo is provided.",
+    "evidence_ids": [
+      "e2"
+    ],
+    "safe_to_apply": true
+  }
+]

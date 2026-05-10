@@ -1,0 +1,20 @@
+{
+  "schema_version": "v2-artifacts-0.1",
+  "generated_at": "2026-05-10T04:07:41Z",
+  "source_mode": "oracle",
+  "source_path": "benchmark/cases/public-fever-refuted-python-caddy",
+  "artifacts": {
+    "claims": "actual-claims.json",
+    "evidence": "actual-evidence.jsonl",
+    "verdicts": "actual-verdicts.json",
+    "review_queue": "actual-review-queue.json",
+    "suggestions": "actual-suggestions.json"
+  },
+  "counts": {
+    "claims": 1,
+    "evidence": 1,
+    "verdicts": 1,
+    "review_queue": 1,
+    "suggestions": 1
+  }
+}

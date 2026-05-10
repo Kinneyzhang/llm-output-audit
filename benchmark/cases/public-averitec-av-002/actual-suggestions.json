@@ -1,0 +1,14 @@
+[
+  {
+    "suggestion_id": "s-c1",
+    "claim_id": "c1",
+    "severity": "must_fix",
+    "old_text": "The project has no web interface.",
+    "new_text": "[needs correction] The project has no web interface.",
+    "reason": "Evidence contradicts the no-web-interface claim.",
+    "evidence_ids": [
+      "qa1"
+    ],
+    "safe_to_apply": false
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "suggestion_id": "s-c1",
+    "claim_id": "c1",
+    "severity": "must_fix",
+    "old_text": "Caddy is primarily written in Python.",
+    "new_text": "[needs correction] Caddy is primarily written in Python.",
+    "reason": "Dataset-provided label.",
+    "evidence_ids": [
+      "e1"
+    ],
+    "safe_to_apply": false
+  }
+]

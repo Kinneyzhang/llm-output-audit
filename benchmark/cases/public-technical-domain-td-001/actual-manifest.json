@@ -1,0 +1,20 @@
+{
+  "schema_version": "v2-artifacts-0.1",
+  "generated_at": "2026-05-10T04:07:41Z",
+  "source_mode": "oracle",
+  "source_path": "benchmark/cases/public-technical-domain-td-001",
+  "artifacts": {
+    "claims": "actual-claims.json",
+    "evidence": "actual-evidence.jsonl",
+    "verdicts": "actual-verdicts.json",
+    "review_queue": "actual-review-queue.json",
+    "suggestions": "actual-suggestions.json"
+  },
+  "counts": {
+    "claims": 2,
+    "evidence": 2,
+    "verdicts": 2,
+    "review_queue": 2,
+    "suggestions": 1
+  }
+}

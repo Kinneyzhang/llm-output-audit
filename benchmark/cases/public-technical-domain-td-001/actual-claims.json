@@ -1,40 +1,18 @@
 [
   {
     "claim_id": "c1",
-    "source_span": {
-      "file": "original.md",
-      "start_line": 1,
-      "end_line": 1,
-      "quote": "ExampleLib supports configuration through EXAMPLE_CONFIG_PATH."
-    },
     "claim_text": "ExampleLib supports configuration through EXAMPLE_CONFIG_PATH.",
     "claim_type": "FEATURE",
     "subject": "unknown",
-    "predicate": "unknown",
-    "object": "ExampleLib supports configuration through EXAMPLE_CONFIG_PATH.",
-    "scope": "dataset-provided",
-    "time_context": "dataset-provided",
     "verifiability": "public",
-    "importance": "medium",
-    "risk_level": "medium"
+    "source": "v2-artifact-writer"
   },
   {
     "claim_id": "c2",
-    "source_span": {
-      "file": "original.md",
-      "start_line": 1,
-      "end_line": 1,
-      "quote": "ExampleLib has exactly 10 GitHub stars."
-    },
     "claim_text": "ExampleLib has exactly 10 GitHub stars.",
     "claim_type": "NUMBER",
     "subject": "unknown",
-    "predicate": "unknown",
-    "object": "ExampleLib has exactly 10 GitHub stars.",
-    "scope": "dataset-provided",
-    "time_context": "dataset-provided",
     "verifiability": "public",
-    "importance": "medium",
-    "risk_level": "medium"
+    "source": "v2-artifact-writer"
   }
 ]
