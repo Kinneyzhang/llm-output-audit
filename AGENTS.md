@@ -45,3 +45,19 @@ python3 scripts/install_agent_skill.py --agent hermes --scope user
 ```
 
 Supported adapters: `hermes`, `claude-code`, `codex`, `opencode`, `gemini`, `generic`.
+
+## MCP server
+
+This repository can also run as a stdio MCP server:
+
+```bash
+python3 scripts/mcp_server.py
+```
+
+Tools exposed: `audit_file`, `audit_text`, `summarize_trace`, and `install_snippet`.
+
+Generate an MCP config snippet:
+
+```bash
+python3 scripts/install_agent_skill.py --agent mcp --scope project
+```

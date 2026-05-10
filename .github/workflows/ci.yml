@@ -34,6 +34,7 @@ jobs:
         run: |
           python -m py_compile scripts/fact_check.py
           python -m py_compile scripts/install_agent_skill.py
+          python -m py_compile scripts/mcp_server.py
 
       - name: CLI help smoke test
         run: python scripts/fact_check.py --help
@@ -81,6 +82,7 @@ jobs:
               'templates/AGENTS.block.md.tmpl',
               'templates/CLAUDE.block.md.tmpl',
               'templates/claude-code-skill.md.tmpl',
+              'templates/mcp-config.json.tmpl',
           ]:
               assert Path(path).exists(), path
 
@@ -97,12 +99,55 @@ jobs:
           python scripts/install_agent_skill.py --agent hermes --scope user --target /tmp/loa-hermes --dry-run
           python scripts/install_agent_skill.py --agent claude-code --scope user --target /tmp/loa-claude-skill.md --dry-run
           python scripts/install_agent_skill.py --agent codex --scope project --target /tmp/loa-AGENTS.md --dry-run
+          python scripts/install_agent_skill.py --agent mcp --scope project --target /tmp/loa-mcp.json --dry-run
           python scripts/install_agent_skill.py --agent claude-code --scope user --target /tmp/loa-claude-skill.md --force --no-project-instructions
           grep -q 'Canonical script' /tmp/loa-claude-skill.md
           python scripts/install_agent_skill.py --agent codex --scope project --target /tmp/loa-AGENTS.md
           python scripts/install_agent_skill.py --agent codex --scope project --target /tmp/loa-AGENTS.md
           test "$(grep -c 'llm-output-audit:start' /tmp/loa-AGENTS.md)" = "1"
           grep -q 'python3 .*scripts/fact_check.py' /tmp/loa-AGENTS.md
+          python scripts/install_agent_skill.py --agent mcp --scope project --target /tmp/loa-mcp.json
+          python -m json.tool /tmp/loa-mcp.json >/dev/null
+          grep -q 'mcp_server.py' /tmp/loa-mcp.json
+
+      - name: MCP server smoke test
+        run: |
+          python scripts/mcp_server.py --version
+          python - <<'PY'
+          import json, subprocess, sys
+
+          proc = subprocess.Popen([sys.executable, 'scripts/mcp_server.py'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+
+          def send(obj):
+              data = json.dumps(obj).encode()
+              proc.stdin.write(f'Content-Length: {len(data)}\r\n\r\n'.encode() + data)
+              proc.stdin.flush()
+
+          def recv():
+              headers = {}
+              while True:
+                  line = proc.stdout.readline()
+                  if line in (b'\r\n', b'\n'):
+                      break
+                  k, _, v = line.decode().partition(':')
+                  headers[k.lower()] = v.strip()
+              body = proc.stdout.read(int(headers['content-length']))
+              return json.loads(body)
+
+          send({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2024-11-05', 'capabilities': {}, 'clientInfo': {'name': 'ci', 'version': '0'}}})
+          assert recv()['result']['serverInfo']['name'] == 'llm-output-audit'
+          send({'jsonrpc': '2.0', 'method': 'notifications/initialized', 'params': {}})
+          send({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list', 'params': {}})
+          names = [t['name'] for t in recv()['result']['tools']]
+          assert {'audit_file', 'audit_text', 'summarize_trace', 'install_snippet'} <= set(names)
+          send({'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call', 'params': {'name': 'install_snippet', 'arguments': {}}})
+          text = recv()['result']['content'][0]['text']
+          assert 'mcp_server.py' in text
+          proc.stdin.close()
+          proc.terminate()
+          proc.wait(timeout=5)
+          print('mcp_smoke_ok')
+          PY
 
       - name: Architecture SVG sanity check
         run: |

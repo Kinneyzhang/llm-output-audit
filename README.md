@@ -69,6 +69,7 @@ Generate an audit report with edit suggestions
 - **Actionable edits** — generates correction, hedging, citation, or deletion suggestions instead of only saying “right/wrong”.
 - **Optional local knowledge base** — LLM Wiki can be used when available, but is not required.
 - **Multi-agent packaging** — install lightweight adapters for Hermes, Claude Code, Codex, OpenCode, Gemini, or generic agents without duplicating the core CLI.
+- **MCP server** — expose `audit_file`, `audit_text`, and `summarize_trace` as stdio MCP tools for MCP-compatible agents.
 
 ## Audit modes
 
@@ -192,13 +193,51 @@ python3 scripts/install_agent_skill.py --agent claude-code --scope user
 python3 scripts/install_agent_skill.py --agent codex --scope project
 ```
 
-Supported adapters: `hermes`, `claude-code`, `codex`, `opencode`, `gemini`, and `generic`.
+Supported adapters: `hermes`, `claude-code`, `codex`, `opencode`, `gemini`, `generic`, and `mcp`.
 
 Safety behavior:
 
 - Existing `AGENTS.md` and `CLAUDE.md` files are updated only inside a marker block: `<!-- llm-output-audit:start --> ... <!-- llm-output-audit:end -->`.
 - Hermes defaults to a symlink so there is one physical source of truth.
 - Use `--target PATH` for custom locations, `--mode copy` when symlinks are not suitable, and `--force` only when you intentionally want to replace a non-marker-managed target.
+
+## MCP server
+
+Run the stdio MCP server directly:
+
+```bash
+python3 scripts/mcp_server.py
+```
+
+It exposes four tools:
+
+- `audit_file` — audit a local Markdown/text file and write an audit report plus trace log.
+- `audit_text` — audit text supplied by the MCP client by first writing it to a temporary Markdown file.
+- `summarize_trace` — summarize a JSONL trace log so another agent can inspect the audit process.
+- `install_snippet` — return MCP client configuration snippets for this server.
+
+Hermes MCP config example:
+
+```yaml
+mcp_servers:
+  llm-output-audit:
+    command: "python3"
+    args: ["/path/to/llm-output-audit/scripts/mcp_server.py"]
+    timeout: 600
+    connect_timeout: 30
+```
+
+Claude Code example:
+
+```bash
+claude mcp add llm-output-audit -- python3 /path/to/llm-output-audit/scripts/mcp_server.py
+```
+
+Generate a config snippet file:
+
+```bash
+python3 scripts/install_agent_skill.py --agent mcp --scope project
+```
 
 ## Configuration
 

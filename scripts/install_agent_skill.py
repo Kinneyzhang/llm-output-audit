@@ -22,7 +22,7 @@ SKILL_NAME = "llm-output-audit"
 MARKER_NAME = "llm-output-audit"
 START_MARKER = f"<!-- {MARKER_NAME}:start -->"
 END_MARKER = f"<!-- {MARKER_NAME}:end -->"
-SUPPORTED_AGENTS = {"hermes", "claude-code", "codex", "opencode", "gemini", "generic"}
+SUPPORTED_AGENTS = {"hermes", "claude-code", "codex", "opencode", "gemini", "generic", "mcp"}
 AGENTS_MD_AGENTS = {"codex", "opencode", "gemini", "generic"}
 
 
@@ -181,6 +181,10 @@ def default_target(agent: str, scope: str, root: Path) -> Path:
         if agent == "opencode":
             return home / ".opencode" / "AGENTS.md"
         return home / ".config" / "agents" / "AGENTS.md"
+    if agent == "mcp":
+        if scope == "project":
+            return cwd / "mcp" / "llm-output-audit.mcp.json"
+        return home / ".config" / "llm-output-audit" / "mcp-server.json"
     raise InstallError(f"Unsupported agent: {agent}")
 
 
@@ -209,9 +213,16 @@ def install_agents_md(args: argparse.Namespace, root: Path, actions: list[Planne
     write_marker_file(target, block, args.dry_run, args.force, actions)
 
 
+def install_mcp(args: argparse.Namespace, root: Path, actions: list[PlannedAction]) -> None:
+    values = template_vars(root, "mcp", args.scope)
+    target = Path(args.target).expanduser() if args.target else default_target("mcp", args.scope, root)
+    content = render_template(root, "mcp-config.json.tmpl", values)
+    write_file(target, content, args.dry_run, args.force, actions)
+
+
 def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Install llm-output-audit adapters for Hermes, Claude Code, Codex, and generic agents."
+        description="Install llm-output-audit adapters for Hermes, Claude Code, Codex, MCP, and generic agents."
     )
     p.add_argument("--agent", required=True, choices=sorted(SUPPORTED_AGENTS), help="Target agent adapter to install")
     p.add_argument("--scope", choices=["user", "project"], default="user", help="Install globally for the user or into the current project")
@@ -232,6 +243,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             install_hermes(args, root, actions)
         elif args.agent == "claude-code":
             install_claude_code(args, root, actions)
+        elif args.agent == "mcp":
+            install_mcp(args, root, actions)
         else:
             install_agents_md(args, root, actions)
     except InstallError as exc:

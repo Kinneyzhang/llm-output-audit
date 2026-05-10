@@ -32,3 +32,19 @@ Use `--mode full` for public or high-stakes writing.
 3. Keep `--trace-log` enabled for non-trivial audits.
 4. Prefer structured API evidence for source-owned facts such as GitHub stars and package versions.
 5. If asked to install this skill into Claude Code, run `python3 scripts/install_agent_skill.py --agent claude-code --scope user` or use `--scope project` for project-local installation.
+
+## MCP server
+
+For MCP-compatible use, run:
+
+```bash
+python3 scripts/mcp_server.py
+```
+
+Claude Code can connect with:
+
+```bash
+claude mcp add llm-output-audit -- python3 /path/to/llm-output-audit/scripts/mcp_server.py
+```
+
+The MCP tools are `audit_file`, `audit_text`, `summarize_trace`, and `install_snippet`.

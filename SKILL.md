@@ -1,7 +1,7 @@
 ---
 name: llm-output-audit
 description: Use when auditing long-form LLM-generated articles, technical reports, or research notes for factual accuracy, hallucination risk, internal consistency, source quality, and actionable edit suggestions.
-version: 1.10.0
+version: 1.11.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -465,6 +465,7 @@ Preview first:
 python3 scripts/install_agent_skill.py --agent hermes --scope user --dry-run
 python3 scripts/install_agent_skill.py --agent claude-code --scope user --dry-run
 python3 scripts/install_agent_skill.py --agent codex --scope project --dry-run
+python3 scripts/install_agent_skill.py --agent mcp --scope project --dry-run
 ```
 
 Supported adapters:
@@ -473,6 +474,7 @@ Supported adapters:
 - `claude-code` — write a Claude skill markdown file and a marker-managed `CLAUDE.md` block.
 - `codex` — write a marker-managed `AGENTS.md` block.
 - `opencode`, `gemini`, `generic` — also use marker-managed `AGENTS.md` blocks.
+- `mcp` — write a JSON config snippet for MCP clients.
 
 Installer safety rules:
 
@@ -481,6 +483,42 @@ Installer safety rules:
 - Hermes defaults to `--mode symlink`; use `--mode copy` only when symlinks are not suitable.
 - Use `--target PATH` for non-standard agent directories.
 - Use `--force` only when intentionally replacing a non-marker-managed target.
+
+---
+
+## MCP Server
+
+Run the stdio MCP server directly:
+
+```bash
+python3 scripts/mcp_server.py
+```
+
+The server exposes these tools:
+
+- `audit_file` — audit a local Markdown/text file and write a report plus JSONL trace.
+- `audit_text` — audit text supplied by an MCP client by writing it to a temporary Markdown file.
+- `summarize_trace` — summarize a trace log for process debugging.
+- `install_snippet` — return MCP client config snippets.
+
+Hermes MCP config shape:
+
+```yaml
+mcp_servers:
+  llm-output-audit:
+    command: "python3"
+    args: ["/path/to/llm-output-audit/scripts/mcp_server.py"]
+    timeout: 600
+    connect_timeout: 30
+```
+
+Claude Code config example:
+
+```bash
+claude mcp add llm-output-audit -- python3 /path/to/llm-output-audit/scripts/mcp_server.py
+```
+
+The implementation speaks MCP stdio framing directly and does not require the Python `mcp` SDK at runtime.
 
 ---
 
