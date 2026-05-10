@@ -4,9 +4,9 @@
 
 [![CI](https://github.com/Kinneyzhang/llm-output-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/Kinneyzhang/llm-output-audit/actions/workflows/ci.yml)
 
-> 审计大模型生成的长文输出：事实准确性、幻觉风险、过时知识、内部矛盾、来源质量，并给出可执行修改建议。
+> 跨 Agent 的 LLM 输出审计工具：检查事实准确性、幻觉风险、过时知识、内部矛盾、来源质量，并给出可执行修改建议。
 
-LLM Output Audit 是一个 Hermes Agent skill，也可以作为独立 Python 审计脚本使用。它适合在保存、发布或复用 AI 生成的研究报告、技术对比、使用指南、部署记录、README、博客和知识库页面之前，对内容进行系统性审查。
+LLM Output Audit 是一个可移植的审计工具包，用于在保存、发布或复用 AI 生成的研究报告、技术对比、使用指南、部署记录、README、博客和知识库页面之前，对内容进行系统性审查。它同时提供 Python CLI、stdio MCP server，以及面向 Hermes、Claude Code、Codex、OpenCode、Gemini 和通用 coding agent 的轻量适配入口。
 
 它不是普通 RAG。RAG 的目标通常是“检索上下文并生成回答”。LLM Output Audit 的目标是“审计已有草稿”：抽取原子事实声明，按声明类型路由到最权威的数据源，收集证据，给出评级，并生成可执行的修订建议。
 
@@ -30,7 +30,7 @@ LLM Output Audit 是一个 Hermes Agent skill，也可以作为独立 Python 审
 - **内部矛盾**：同一篇文章前后说法不能同时成立。
 - **来源质量弱**：本该查官方 API 或一手资料，却只用了泛搜索摘要。
 
-LLM Output Audit 的作用是给 Agent 一个可重复的审稿流程，避免未审草稿直接进入笔记、Wiki、博客、README 或公开文档。
+LLM Output Audit 的作用是给人和 Agent 一个可重复的审稿流程，避免未审草稿直接进入笔记、Wiki、博客、README 或公开文档。
 
 ## 它如何工作
 
@@ -178,6 +178,7 @@ python3 -m pip install -r requirements.txt
 python3 scripts/install_agent_skill.py --agent hermes --scope user --dry-run
 python3 scripts/install_agent_skill.py --agent claude-code --scope user --dry-run
 python3 scripts/install_agent_skill.py --agent codex --scope project --dry-run
+python3 scripts/install_agent_skill.py --agent mcp --scope project --dry-run
 ```
 
 安装示例：

@@ -21,7 +21,9 @@ LLM-generated long-form outputs contain four common quality risks:
 3. **Unsupported claims** — plausible but uncited statements that need evidence or hedging
 4. **Internal contradictions** — the article contradicts itself across sections, timelines, or comparisons
 
-This skill runs a structured verification pipeline with an internal **Source Router**:
+LLM Output Audit is a portable audit toolkit: a Python CLI, a stdio MCP server, and a set of lightweight agent adapters. The Hermes `SKILL.md` is one adapter, not the only way to use the tool.
+
+The toolkit runs a structured verification pipeline with an internal **Source Router**:
 
 ```
 Article text
@@ -133,7 +135,7 @@ Keep defaults conservative to avoid API rate limits. Increase workers for local 
 
 ## Execution Timing and Revision Policy
 
-This skill is not only a report generator. It defines when to audit and what to do with the audit result.
+This toolkit is not only a report generator. It defines when to audit and what to do with the audit result.
 
 ### Mode A — Agent-generated durable output: auto-revise before delivery
 
@@ -400,12 +402,12 @@ Use `--trace-log path.jsonl` when debugging the auditor itself. The trace record
 
 ## RAG vs This Skill
 
-This skill uses RAG-like retrieval, but it is not just RAG.
+This toolkit uses RAG-like retrieval, but it is not just RAG.
 
 - RAG answers questions by retrieving context and generating text.
-- This skill audits an existing article: extract claims → route sources → gather evidence → rate → adversarial review → suggest edits.
+- It audits an existing article: extract claims → route sources → gather evidence → rate → adversarial review → suggest edits.
 
-RAG is one component of the skill, not the whole system. The skill's advantage is editorial workflow: systematic claim extraction, source-specific routing, false-positive control, and concrete correction suggestions.
+RAG is one component of the toolkit, not the whole system. Its advantage is editorial workflow: systematic claim extraction, source-specific routing, false-positive control, and concrete correction suggestions.
 
 ---
 
@@ -423,7 +425,7 @@ python3 ~/.hermes/skills/research/llm-output-audit/scripts/fact_check.py \
     --trace-log /path/to/report-trace.jsonl
 ```
 
-`--trace-log` is optional but recommended when improving the skill. It writes JSONL events showing each route, source query, structured result, evidence selection, deterministic override, and rating decision.
+`--trace-log` is optional but recommended when improving the toolkit. It writes JSONL events showing each route, source query, structured result, evidence selection, deterministic override, and rating decision.
 
 Optional local knowledge-base enhancement:
 
@@ -559,7 +561,7 @@ Based on testing against AI/tech research articles:
 
 5. **Over-correcting** — If a correction source is itself a blog post of uncertain quality, flag as ⚠️ rather than replacing the original claim.
 
-6. **Assuming LLM Wiki exists.** LLM Wiki is an optional local knowledge source. Use `--use-wiki --wiki /path/to/wiki` only when the user has one configured; otherwise the skill should work without it.
+6. **Assuming LLM Wiki exists.** LLM Wiki is an optional local knowledge source. Use `--use-wiki --wiki /path/to/wiki` only when the user has one configured; otherwise the toolkit should work without it.
 
 ---
 
@@ -587,7 +589,7 @@ Tested on: `ai-agent-protocols-mcp-a2a-acp-anp.md` (~2000 words, AI/agent protoc
 - Bare date strings ("2024年", "2025年8月") extracted as claims → high-noise extractions
 
 **Practical conclusion:**  
-The skill is best used as a first-pass filter that surfaces ⚠️/🔍 items for human follow-up — not as a fully autonomous verifier. Treating ❌ as definitive requires checking the correction evidence. The efficiency gain (~93% time reduction) and coverage gain (systematic vs spot-check) are the primary values.
+The toolkit is best used as a first-pass filter that surfaces ⚠️/🔍 items for human follow-up — not as a fully autonomous verifier. Treating ❌ as definitive requires checking the correction evidence. The efficiency gain (~93% time reduction) and coverage gain (systematic vs spot-check) are the primary values.
 
 ---
 

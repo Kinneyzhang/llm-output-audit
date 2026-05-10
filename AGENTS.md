@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository provides `llm-output-audit`, a CLI-backed skill for auditing long-form LLM output.
+This repository provides `llm-output-audit`, a portable audit toolkit for long-form LLM output. It can be used as a Python CLI, stdio MCP server, or lightweight adapter for Hermes, Claude Code, Codex, OpenCode, Gemini, and generic coding agents.
 
 ## When an agent should use this repo
 
@@ -44,7 +44,7 @@ python3 scripts/install_agent_skill.py --agent claude-code --scope user
 python3 scripts/install_agent_skill.py --agent hermes --scope user
 ```
 
-Supported adapters: `hermes`, `claude-code`, `codex`, `opencode`, `gemini`, `generic`.
+Supported adapters: `hermes`, `claude-code`, `codex`, `opencode`, `gemini`, `generic`, `mcp`.
 
 ## MCP server
 

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This repository contains `llm-output-audit`, a CLI-backed skill for auditing long-form LLM output.
+This repository contains `llm-output-audit`, a portable audit toolkit for long-form LLM output. It can be used as a Python CLI, stdio MCP server, or lightweight adapter for Claude Code and other agents.
 
 ## Use this for
 

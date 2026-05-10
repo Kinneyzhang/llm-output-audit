@@ -230,7 +230,7 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     p.add_argument("--mode", choices=["symlink", "copy"], default="symlink", help="Hermes install mode; other adapters write marker-managed files")
     p.add_argument("--force", action="store_true", help="Replace existing non-marker-managed files/targets when needed")
     p.add_argument("--dry-run", action="store_true", help="Print planned actions without writing")
-    p.add_argument("--no-project-instructions", action="store_true", help="For claude-code, install only the skill file and skip CLAUDE.md marker block")
+    p.add_argument("--no-project-instructions", action="store_true", help="For claude-code, install only the adapter file and skip CLAUDE.md marker block")
     return p.parse_args(list(argv))
 
 

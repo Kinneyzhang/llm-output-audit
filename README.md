@@ -4,9 +4,9 @@
 
 [![CI](https://github.com/Kinneyzhang/llm-output-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/Kinneyzhang/llm-output-audit/actions/workflows/ci.yml)
 
-> Audit long-form LLM output for factual accuracy, hallucination risk, stale knowledge, internal contradictions, source quality, and actionable edit suggestions.
+> Cross-agent LLM output auditing: factual accuracy, hallucination risk, stale knowledge, internal contradictions, source quality, and actionable edit suggestions.
 
-LLM Output Audit is a Hermes Agent skill and standalone Python audit script for reviewing AI-generated research reports, technical comparisons, usage guides, deployment writeups, and other durable long-form content before you save, publish, or reuse it.
+LLM Output Audit is a portable audit toolkit for reviewing AI-generated research reports, technical comparisons, usage guides, deployment writeups, README/blog drafts, and other durable long-form content before you save, publish, or reuse it. It ships as a Python CLI, a stdio MCP server, and lightweight adapters for Hermes, Claude Code, Codex, OpenCode, Gemini, and generic coding agents.
 
 It is not just another RAG workflow. RAG retrieves context to help generate an answer. LLM Output Audit starts with an existing draft, extracts atomic factual claims, routes each claim to the most authoritative evidence source, verifies the evidence, rates the claim, and produces concrete edit suggestions.
 
@@ -30,7 +30,7 @@ LLMs are good at drafting, but long-form AI output tends to fail in predictable 
 - **Internal contradictions** — sections that cannot all be true at the same time.
 - **Weak source quality** — generic snippets used where official APIs or primary sources should be used.
 
-LLM Output Audit gives an agent a repeatable review pipeline before the output becomes part of your notes, wiki, blog, README, or public documentation.
+LLM Output Audit gives humans and agents a repeatable review pipeline before output becomes part of your notes, wiki, blog, README, or public documentation.
 
 ## What it does
 
@@ -178,6 +178,7 @@ Preview what would be installed:
 python3 scripts/install_agent_skill.py --agent hermes --scope user --dry-run
 python3 scripts/install_agent_skill.py --agent claude-code --scope user --dry-run
 python3 scripts/install_agent_skill.py --agent codex --scope project --dry-run
+python3 scripts/install_agent_skill.py --agent mcp --scope project --dry-run
 ```
 
 Install examples:
@@ -403,7 +404,7 @@ Verdict summary: ✅ CONFIRMED 2 | 🔍 UNSOURCED 1
 
 ## Agent workflow policy
 
-The skill is designed for agentic use, not only manual CLI use.
+The toolkit is designed for agentic use, not only manual CLI use.
 
 ### Agent-generated durable output
 
