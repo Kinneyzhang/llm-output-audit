@@ -54,7 +54,7 @@ This repository can also run as a stdio MCP server:
 python3 scripts/mcp_server.py
 ```
 
-Tools exposed: `audit_file`, `audit_text`, `summarize_trace`, and `install_snippet`.
+Tools exposed: `audit_file`, `audit_text`, `audit_file_v2`, `summarize_artifacts`, `summarize_trace`, and `install_snippet`.
 
 Generate an MCP config snippet:
 

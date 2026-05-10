@@ -227,19 +227,31 @@ def compare_actual_artifacts(
     expected_claim_texts = {normalize_text(item.get("claim_text", "")) for item in expected_claims}
     actual_claim_texts = {normalize_text(item.get("claim_text", "")) for item in actual_claims}
     claim_matches = expected_claim_texts & actual_claim_texts
+    expected_claim_id_by_text = {normalize_text(item.get("claim_text", "")): item.get("claim_id") for item in expected_claims}
+    actual_claim_id_by_text = {normalize_text(item.get("claim_text", "")): item.get("claim_id") for item in actual_claims}
     expected_by_id = {item.get("claim_id"): item for item in expected_verdicts}
     actual_by_id = {item.get("claim_id"): item for item in actual_verdicts}
     shared_ids = set(expected_by_id) & set(actual_by_id)
+    shared_claim_texts = expected_claim_texts & actual_claim_texts
+    verdict_comparisons: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+    for text_key in sorted(shared_claim_texts):
+        expected_id = expected_claim_id_by_text.get(text_key)
+        actual_id = actual_claim_id_by_text.get(text_key)
+        if expected_id in expected_by_id and actual_id in actual_by_id:
+            verdict_comparisons.append((text_key, expected_by_id[expected_id], actual_by_id[actual_id]))
+    # Fall back to ID matching for legacy artifacts that do not preserve claim text.
+    if not verdict_comparisons:
+        verdict_comparisons = [(str(cid), expected_by_id[cid], actual_by_id[cid]) for cid in sorted(shared_ids)]
     verdict_matches = [
-        cid
-        for cid in shared_ids
-        if expected_by_id[cid].get("truth_verdict") == actual_by_id[cid].get("truth_verdict")
+        key
+        for key, expected_item, actual_item in verdict_comparisons
+        if expected_item.get("truth_verdict") == actual_item.get("truth_verdict")
     ]
     refuted_false_positive_candidates = [
-        cid
-        for cid in shared_ids
-        if actual_by_id[cid].get("truth_verdict") == "refuted"
-        and expected_by_id[cid].get("truth_verdict") != "refuted"
+        key
+        for key, expected_item, actual_item in verdict_comparisons
+        if actual_item.get("truth_verdict") == "refuted"
+        and expected_item.get("truth_verdict") != "refuted"
     ]
     comparison.update(
         {
@@ -251,8 +263,9 @@ def compare_actual_artifacts(
             "expected_verdict_count": len(expected_verdicts),
             "actual_verdict_count": len(actual_verdicts),
             "verdict_shared_id_count": len(shared_ids),
+            "verdict_shared_claim_count": len(verdict_comparisons),
             "verdict_match_count": len(verdict_matches),
-            "verdict_accuracy_on_shared_ids": round(len(verdict_matches) / len(shared_ids), 4) if shared_ids else 0.0,
+            "verdict_accuracy_on_shared_ids": round(len(verdict_matches) / len(verdict_comparisons), 4) if verdict_comparisons else 0.0,
             "refuted_false_positive_candidate_count": len(refuted_false_positive_candidates),
             "refuted_false_positive_candidates": sorted(refuted_false_positive_candidates),
             "actual_evidence_count": evidence_count,

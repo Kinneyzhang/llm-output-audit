@@ -29,6 +29,10 @@ def fact_check_script() -> Path:
     return repo_root() / "scripts" / "fact_check.py"
 
 
+def audit_v2_script() -> Path:
+    return repo_root() / "scripts" / "audit_v2.py"
+
+
 def read_message() -> dict[str, Any] | None:
     """Read one MCP framed JSON-RPC message from stdin."""
     headers: dict[str, str] = {}
@@ -227,6 +231,77 @@ def tool_install_snippet(args: dict[str, Any]) -> dict[str, Any]:
     return text_result(data)
 
 
+def run_audit_v2_file(args: dict[str, Any], file_path: Path, output_dir: Path) -> dict[str, Any]:
+    timeout = int(args.get("timeout") or 600)
+    cmd = [sys.executable, str(audit_v2_script()), "--file", str(file_path), "--output-dir", str(output_dir)]
+    proc = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout)
+    manifest_path = output_dir / "actual-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
+    return {
+        "ok": proc.returncode == 0,
+        "exit_code": proc.returncode,
+        "command": cmd,
+        "file": str(file_path),
+        "output_dir": str(output_dir),
+        "manifest": manifest,
+        "stdout_tail": tail(proc.stdout),
+        "stderr_tail": tail(proc.stderr),
+    }
+
+
+def tool_audit_file_v2(args: dict[str, Any]) -> dict[str, Any]:
+    file_value = args.get("file")
+    if not file_value:
+        return text_result({"ok": False, "error": "Missing required argument: file"}, is_error=True)
+    file_path = Path(str(file_value)).expanduser().resolve()
+    if not file_path.exists():
+        return text_result({"ok": False, "error": f"File not found: {file_path}"}, is_error=True)
+    output_dir = Path(str(args["output_dir"])).expanduser().resolve() if args.get("output_dir") else file_path.with_name(file_path.stem + "-v2-artifacts")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        data = run_audit_v2_file(args, file_path, output_dir)
+        return text_result(data, is_error=not data["ok"])
+    except subprocess.TimeoutExpired as exc:
+        return text_result({"ok": False, "error": f"v2 audit timed out after {exc.timeout}s", "file": str(file_path)}, is_error=True)
+    except Exception as exc:  # noqa: BLE001
+        return text_result({"ok": False, "error": f"{type(exc).__name__}: {exc}", "file": str(file_path)}, is_error=True)
+
+
+def tool_summarize_artifacts(args: dict[str, Any]) -> dict[str, Any]:
+    dir_value = args.get("artifact_dir")
+    if not dir_value:
+        return text_result({"ok": False, "error": "Missing required argument: artifact_dir"}, is_error=True)
+    artifact_dir = Path(str(dir_value)).expanduser().resolve()
+    if not artifact_dir.exists():
+        return text_result({"ok": False, "error": f"Artifact dir not found: {artifact_dir}"}, is_error=True)
+    files = {
+        "claims": artifact_dir / "actual-claims.json",
+        "evidence": artifact_dir / "actual-evidence.jsonl",
+        "verdicts": artifact_dir / "actual-verdicts.json",
+        "review_queue": artifact_dir / "actual-review-queue.json",
+        "suggestions": artifact_dir / "actual-suggestions.json",
+        "manifest": artifact_dir / "actual-manifest.json",
+    }
+    counts = {}
+    for name, path in files.items():
+        if not path.exists():
+            counts[name] = None
+        elif path.suffix == ".jsonl":
+            counts[name] = sum(1 for line in path.read_text(encoding="utf-8", errors="ignore").splitlines() if line.strip())
+        elif name == "manifest":
+            counts[name] = 1
+        else:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            counts[name] = len(data) if isinstance(data, list) else 1
+    verdict_counts = {}
+    if files["verdicts"].exists():
+        verdict_counts = dict(Counter(item.get("truth_verdict", "unknown") for item in json.loads(files["verdicts"].read_text(encoding="utf-8"))))
+    queue_counts = {}
+    if files["review_queue"].exists():
+        queue_counts = dict(Counter(item.get("queue", "unknown") for item in json.loads(files["review_queue"].read_text(encoding="utf-8"))))
+    return text_result({"ok": True, "artifact_dir": str(artifact_dir), "counts": counts, "verdict_counts": verdict_counts, "queue_counts": queue_counts})
+
+
 def tools_list() -> list[dict[str, Any]]:
     common = {
         "mode": {"type": "string", "enum": ["auto", "fast", "spot", "draft", "full"], "default": "draft"},
@@ -262,6 +337,24 @@ def tools_list() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "audit_file_v2",
+            "description": "Run the deterministic v2 artifact pipeline on a local Markdown/text file and write normalized actual-* artifacts.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"file": {"type": "string"}, "output_dir": {"type": "string"}, "timeout": {"type": "integer", "minimum": 10, "maximum": 7200, "default": 600}},
+                "required": ["file"],
+            },
+        },
+        {
+            "name": "summarize_artifacts",
+            "description": "Summarize a v2 artifact directory containing actual-claims/evidence/verdicts/review/suggestions files.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"artifact_dir": {"type": "string"}},
+                "required": ["artifact_dir"],
+            },
+        },
+        {
             "name": "summarize_trace",
             "description": "Summarize a llm-output-audit JSONL trace log for debugging the audit process.",
             "inputSchema": {
@@ -286,6 +379,10 @@ def handle_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
         return tool_audit_file(args)
     if name == "audit_text":
         return tool_audit_text(args)
+    if name == "audit_file_v2":
+        return tool_audit_file_v2(args)
+    if name == "summarize_artifacts":
+        return tool_summarize_artifacts(args)
     if name == "summarize_trace":
         return tool_summarize_trace(args)
     if name == "install_snippet":

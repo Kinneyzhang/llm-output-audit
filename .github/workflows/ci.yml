@@ -118,7 +118,7 @@ jobs:
         run: |
           python scripts/mcp_server.py --version
           python - <<'PY'
-          import json, subprocess, sys
+          import json, subprocess, sys, tempfile
 
           proc = subprocess.Popen([sys.executable, 'scripts/mcp_server.py'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
@@ -143,10 +143,17 @@ jobs:
           send({'jsonrpc': '2.0', 'method': 'notifications/initialized', 'params': {}})
           send({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list', 'params': {}})
           names = [t['name'] for t in recv()['result']['tools']]
-          assert {'audit_file', 'audit_text', 'summarize_trace', 'install_snippet'} <= set(names)
+          assert {'audit_file', 'audit_text', 'audit_file_v2', 'summarize_artifacts', 'summarize_trace', 'install_snippet'} <= set(names)
           send({'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call', 'params': {'name': 'install_snippet', 'arguments': {}}})
           text = recv()['result']['content'][0]['text']
           assert 'mcp_server.py' in text
+          artifact_dir = tempfile.mkdtemp(prefix='loa-mcp-v2-')
+          send({'jsonrpc': '2.0', 'id': 4, 'method': 'tools/call', 'params': {'name': 'audit_file_v2', 'arguments': {'file': 'benchmark/cases/public-fever-supported-caddy-go/original.md', 'output_dir': artifact_dir}}})
+          audit_v2 = json.loads(recv()['result']['content'][0]['text'])
+          assert audit_v2['ok'], audit_v2
+          send({'jsonrpc': '2.0', 'id': 5, 'method': 'tools/call', 'params': {'name': 'summarize_artifacts', 'arguments': {'artifact_dir': artifact_dir}}})
+          artifacts = json.loads(recv()['result']['content'][0]['text'])
+          assert artifacts['ok'] and artifacts['counts']['claims'] == 1, artifacts
           proc.stdin.close()
           proc.terminate()
           proc.wait(timeout=5)
@@ -166,6 +173,12 @@ jobs:
           done
           python scripts/eval_auditor.py /tmp/loa-public-cases --actual-root /tmp/loa-v2-actual --output /tmp/loa-built-benchmark-report.md --json-output /tmp/loa-built-benchmark-report.json
           python scripts/eval_auditor.py benchmark/cases --output /tmp/loa-benchmark-report.md --json-output /tmp/loa-benchmark-report.json
+          rm -rf /tmp/loa-v2-native
+          mkdir -p /tmp/loa-v2-native
+          for case in benchmark/cases/*; do
+            python scripts/audit_v2.py --file "$case/original.md" --output-dir "/tmp/loa-v2-native/$(basename "$case")"
+          done
+          python scripts/eval_auditor.py benchmark/cases --actual-root /tmp/loa-v2-native --output /tmp/loa-native-benchmark-report.md --json-output /tmp/loa-native-benchmark-report.json
           python - <<'PY'
           import json
           from pathlib import Path
@@ -195,5 +208,14 @@ jobs:
           assert summary['actual_metric_averages']['claim_recall'] == 1.0
           assert summary['actual_metric_averages']['verdict_accuracy_on_shared_ids'] == 1.0
           assert not summary['actual_failure_cases']
+
+          native = json.loads(Path('/tmp/loa-native-benchmark-report.json').read_text())['summary']
+          assert native['case_count'] >= 8
+          assert native['valid_case_count'] == native['case_count']
+          assert native['actual_available_count'] >= 8
+          assert native['actual_metric_averages']['claim_precision'] == 1.0
+          assert native['actual_metric_averages']['claim_recall'] == 1.0
+          assert native['actual_metric_averages']['verdict_accuracy_on_shared_ids'] == 1.0
+          assert not native['actual_failure_cases']
           print('v2_benchmark_smoke_ok')
           PY

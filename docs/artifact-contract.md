@@ -130,6 +130,16 @@ python3 scripts/audit_v2.py \
   --output-dir /tmp/loa-v2-artifacts/000-smoke
 ```
 
+Native deterministic v2 scaffold:
+
+```bash
+python3 scripts/audit_v2.py \
+  --file path/to/article.md \
+  --output-dir /tmp/loa-v2-artifacts/native-run
+```
+
+This writes `article-profile.json` and `verification-plan.json` in addition to the evaluator-facing `actual-*` artifacts.
+
 V1 trace conversion:
 
 ```bash
