@@ -16,6 +16,7 @@ Modes:
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -619,7 +620,15 @@ GITHUB_ALIAS_REPOS = {
 
 
 def http_json(url: str, *, headers: dict[str, str] | None = None, timeout: int = 20) -> Any | None:
-    req = urllib.request.Request(url, headers={"User-Agent": "llm-output-audit-v2/0.1", **(headers or {})})
+    merged_headers = {"User-Agent": "llm-output-audit-v2/0.1", **(headers or {})}
+    try:
+        import requests
+        resp = requests.get(url, headers=merged_headers, timeout=timeout)
+        if resp.ok:
+            return resp.json()
+    except Exception:
+        pass
+    req = urllib.request.Request(url, headers=merged_headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8", errors="replace"))
@@ -690,7 +699,7 @@ def github_repo_evidence(claim: dict[str, Any]) -> list[dict[str, Any]]:
     supports: list[str] = []
     contradicts: list[str] = []
     quote_bits = [
-        f"GitHub API repo {repo}: stars={data.get('stargazers_count')}, forks={data.get('forks_count')}, language={data.get('language')}, archived={data.get('archived')}, license={(data.get('license') or {}).get('spdx_id')}, pushed_at={data.get('pushed_at')}."
+        f"GitHub API repo {repo}: stars={data.get('stargazers_count')}, forks={data.get('forks_count')}, open_issues={data.get('open_issues_count')}, language={data.get('language')}, archived={data.get('archived')}, license={(data.get('license') or {}).get('spdx_id')}, created_at={data.get('created_at')}, pushed_at={data.get('pushed_at')}."
     ]
     if claim_mentions_stars(text):
         claimed = extract_claim_number(text)
@@ -712,6 +721,30 @@ def github_repo_evidence(claim: dict[str, Any]) -> list[dict[str, Any]]:
             else:
                 contradicts.append(claim_id)
             quote_bits.append(f"Claimed forks≈{claimed}; live GitHub forks={actual}; tolerance={tolerance}.")
+    if re.search(r"open issues?|issues?", lowered) or "未解决 issue" in text or "开放 issue" in text:
+        claimed = extract_claim_number(text)
+        actual = data.get("open_issues_count")
+        if isinstance(claimed, int) and isinstance(actual, int):
+            tolerance = max(25, int(actual * 0.10))
+            if abs(actual - claimed) <= tolerance:
+                supports.append(claim_id)
+            else:
+                contradicts.append(claim_id)
+            quote_bits.append(f"Claimed open issues≈{claimed}; live GitHub open_issues_count={actual}; tolerance={tolerance}.")
+    if ("created" in lowered or "创建" in text) and data.get("created_at"):
+        date_match = re.search(r"20\d{2}-\d{2}-\d{2}", text)
+        if date_match:
+            created_date = str(data.get("created_at"))[:10]
+            if created_date == date_match.group(0):
+                supports.append(claim_id)
+            else:
+                contradicts.append(claim_id)
+            quote_bits.append(f"Claimed created date={date_match.group(0)}; GitHub created_at date={created_date}.")
+    if "license" in lowered or "许可证" in text:
+        lic = str((data.get("license") or {}).get("spdx_id") or "").lower()
+        if lic and lic in lowered:
+            supports.append(claim_id)
+            quote_bits.append(f"GitHub license spdx_id={lic}.")
     if ("latest commit" in lowered or "最近提交" in text or "latest push" in lowered) and data.get("pushed_at"):
         date_match = re.search(r"20\d{2}-\d{2}-\d{2}", text)
         if date_match:
@@ -721,6 +754,19 @@ def github_repo_evidence(claim: dict[str, Any]) -> list[dict[str, Any]]:
             else:
                 contradicts.append(claim_id)
             quote_bits.append(f"Claimed latest commit date={date_match.group(0)}; GitHub pushed_at date={pushed_date}.")
+    if "latest release" in lowered or "最新 release" in text or "最新版本" in text:
+        rel = http_json(f"https://api.github.com/repos/{urllib.parse.quote(repo, safe='/')}/releases/latest")
+        if isinstance(rel, dict) and rel.get("tag_name"):
+            tag = str(rel.get("tag_name"))
+            published = str(rel.get("published_at") or "")[:10]
+            tag_ok = tag.lower() in lowered
+            date_match = re.search(r"20\d{2}-\d{2}-\d{2}", text)
+            date_ok = not date_match or published == date_match.group(0)
+            if tag_ok and date_ok:
+                supports.append(claim_id)
+            elif tag_ok or published:
+                contradicts.append(claim_id)
+            quote_bits.append(f"GitHub latest release tag={tag}, published_at={published}.")
     if "archived" in lowered or "归档" in text:
         archived = bool(data.get("archived"))
         says_archived = "not archived" not in lowered and "未归档" not in text and "没有归档" not in text
@@ -753,6 +799,54 @@ def github_repo_evidence(claim: dict[str, Any]) -> list[dict[str, Any]]:
     }]
 
 
+
+def relevant_quote(text: str, claim_text: str, max_chars: int = 1800) -> str:
+    tokens = [t.lower() for t in re.findall(r"[A-Za-z][A-Za-z0-9_-]{3,}|[\u4e00-\u9fff]{2,}", claim_text) if t.lower() not in {"this", "that", "with", "from", "supports", "requires"}]
+    chunks = re.split(r"(?<=[.!?。！？])\s+|\n+", text)
+    scored=[]
+    for chunk in chunks:
+        low=chunk.lower()
+        score=sum(1 for t in tokens if t in low)
+        if score:
+            scored.append((score, chunk.strip()))
+    if scored:
+        scored.sort(key=lambda x: (-x[0], len(x[1])))
+        quote="\n".join(c for _, c in scored[:5])
+    else:
+        quote=text[:max_chars]
+    return quote[:max_chars]
+
+
+def github_readme_evidence(claim: dict[str, Any]) -> list[dict[str, Any]]:
+    repo = discover_github_repo(claim)
+    if not repo:
+        return []
+    data = http_json(f"https://api.github.com/repos/{urllib.parse.quote(repo, safe='/')}/readme")
+    if not isinstance(data, dict):
+        return []
+    content = data.get("content")
+    if not isinstance(content, str):
+        return []
+    try:
+        readme = base64.b64decode(content).decode("utf-8", errors="replace")
+    except Exception:
+        return []
+    claim_id=claim["claim_id"]
+    return [{
+        "evidence_id": f"gh-readme-{claim_id}",
+        "claim_id": claim_id,
+        "source_type": "github_readme",
+        "authority": "official",
+        "subject_match": "medium",
+        "quote": relevant_quote(readme, claim.get("claim_text", "")),
+        "url": f"https://github.com/{repo}#readme",
+        "retrieved_at": now_iso(),
+        "supports": [],
+        "contradicts": [],
+        "missing": [claim_id],
+        "scores": {"retrieval_relevance": 0.65, "source_authority": 0.85, "evidence_coverage": 0.35},
+    }]
+
 def tavily_evidence(claim: dict[str, Any], max_results: int = 3) -> list[dict[str, Any]]:
     load_env()
     key = os.environ.get("TAVILY_API_KEY")
@@ -781,6 +875,43 @@ def tavily_evidence(claim: dict[str, Any], max_results: int = 3) -> list[dict[st
         })
     return out
 
+
+
+def duckduckgo_evidence(claim: dict[str, Any], max_results: int = 3) -> list[dict[str, Any]]:
+    text = claim.get("claim_text", "")
+    query = urllib.parse.urlencode({"q": text, "format": "json", "no_redirect": "1", "no_html": "1"})
+    data = http_json(f"https://api.duckduckgo.com/?{query}", timeout=15)
+    if not isinstance(data, dict):
+        return []
+    raw_results: list[tuple[str, str, str]] = []
+    if data.get("AbstractText"):
+        raw_results.append((str(data.get("Heading") or "DuckDuckGo abstract"), str(data.get("AbstractURL") or ""), str(data.get("AbstractText") or "")))
+    for r in data.get("RelatedTopics", []):
+        if isinstance(r, dict) and r.get("Text"):
+            raw_results.append((str(r.get("Text", ""))[:100], str(r.get("FirstURL") or ""), str(r.get("Text") or "")))
+        elif isinstance(r, dict) and isinstance(r.get("Topics"), list):
+            for sub in r["Topics"]:
+                if isinstance(sub, dict) and sub.get("Text"):
+                    raw_results.append((str(sub.get("Text", ""))[:100], str(sub.get("FirstURL") or ""), str(sub.get("Text") or "")))
+        if len(raw_results) >= max_results:
+            break
+    out=[]
+    for i, (title, url, quote) in enumerate(raw_results[:max_results], start=1):
+        out.append({
+            "evidence_id": f"ddg-{claim['claim_id']}-{i}",
+            "claim_id": claim["claim_id"],
+            "source_type": "duckduckgo",
+            "authority": "secondary",
+            "subject_match": "unknown",
+            "quote": quote[:1000],
+            "url": url,
+            "retrieved_at": now_iso(),
+            "supports": [],
+            "contradicts": [],
+            "missing": [claim["claim_id"]],
+            "scores": {"retrieval_relevance": 0.4, "source_authority": 0.35, "evidence_coverage": 0.2},
+        })
+    return out
 
 def wikipedia_evidence(claim: dict[str, Any]) -> list[dict[str, Any]]:
     subject = str(claim.get("subject") or "").strip()
@@ -856,7 +987,12 @@ def live_evidence_for_claim(claim: dict[str, Any], plan: dict[str, Any] | None =
     if "github_api" in preferred or "source_repo" in preferred or "github" in claim.get("claim_text", "").lower() or claim_mentions_stars(claim.get("claim_text", "")):
         records.extend(github_repo_evidence(claim))
     if not any(r.get("supports") or r.get("contradicts") for r in records):
+        records.extend(github_readme_evidence(claim))
+    if not any(r.get("supports") or r.get("contradicts") for r in records):
+        before = len(records)
         records.extend(tavily_evidence(claim, max_results=3))
+    if not records:
+        records.extend(duckduckgo_evidence(claim, max_results=3))
     if not records and claim.get("subject") not in {None, "unknown"}:
         records.extend(wikipedia_evidence(claim))
     if not records:
