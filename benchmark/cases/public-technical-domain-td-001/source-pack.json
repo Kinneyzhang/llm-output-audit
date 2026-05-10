@@ -1,0 +1,30 @@
+[
+  {
+    "evidence_id": "repo-file-config",
+    "source_type": "benchmark_source_pack",
+    "authority": "canonical",
+    "subject_match": "unknown",
+    "quote": "Technical-domain expected label.",
+    "url": "benchmark://public-technical-domain-td-001/c1",
+    "supports_claim_texts": [
+      "ExampleLib supports configuration through EXAMPLE_CONFIG_PATH."
+    ],
+    "contradicts_claim_texts": [],
+    "missing_claim_texts": [],
+    "notes": "Deterministic source-pack record for public benchmark smoke."
+  },
+  {
+    "evidence_id": "e2",
+    "source_type": "benchmark_source_pack",
+    "authority": "unknown",
+    "subject_match": "unknown",
+    "quote": "Synthetic case requires deterministic GitHub metadata; no live repo is provided.",
+    "url": "benchmark://public-technical-domain-td-001/c2",
+    "supports_claim_texts": [],
+    "contradicts_claim_texts": [],
+    "missing_claim_texts": [
+      "ExampleLib has exactly 10 GitHub stars."
+    ],
+    "notes": "Deterministic source-pack record for public benchmark smoke."
+  }
+]

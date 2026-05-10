@@ -47,7 +47,10 @@ audit-artifacts/
   actual-review-queue.json
   actual-suggestions.json
   actual-manifest.json
+  source-pack.json        # optional deterministic benchmark/local evidence input
 ```
+
+The native scaffold now consumes `source-pack.json` when present and derives verdicts from evidence support/contradiction/missing markers. This keeps the judge evidence-ledger-driven instead of hard-coding Markdown verdicts.
 
 The native v2 engine may also emit richer intermediate planning files later:
 

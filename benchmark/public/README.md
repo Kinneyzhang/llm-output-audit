@@ -43,4 +43,4 @@ python3 benchmark/public/averitec/adapter.py \
 
 Generated public cases live in `benchmark/cases/public-*` and are safe for CI.
 
-The generated smoke cases include the full v2 `actual-*` artifact set generated from expected artifacts so `scripts/eval_auditor.py` can exercise actual-vs-expected metrics deterministically in CI. Real auditor runs should write those files from the auditor pipeline instead. The deterministic native scaffold can be invoked with `scripts/audit_v2.py --file ARTICLE --output-dir OUT`.
+The generated smoke cases include the full v2 `actual-*` artifact set generated from expected artifacts so `scripts/eval_auditor.py` can exercise actual-vs-expected metrics deterministically in CI. They also include `source-pack.json` records for native v2 mode; `scripts/audit_v2.py --file ARTICLE --output-dir OUT` auto-loads a sibling source pack and derives verdicts from evidence support/contradiction/missing markers. Real auditor runs should write those files from the auditor pipeline instead.

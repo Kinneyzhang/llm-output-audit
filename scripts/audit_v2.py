@@ -397,6 +397,126 @@ def plan_evidence(claims: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return plans
 
 
+def normalize_for_match(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip().lower())
+
+
+def load_source_pack(path: Path | None) -> list[dict[str, Any]]:
+    if path is None or not path.exists():
+        return []
+    data = load_json(path)
+    if not isinstance(data, list):
+        raise ValueError(f"source pack must be a JSON array: {path}")
+    return data
+
+
+def source_pack_for_article(article_path: Path, explicit: Path | None = None) -> Path | None:
+    if explicit is not None:
+        return explicit
+    candidate = article_path.parent / "source-pack.json"
+    return candidate if candidate.exists() else None
+
+
+def evidence_from_source_pack(claims: list[dict[str, Any]], source_pack: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    retrieved_at = now_iso()
+    records: list[dict[str, Any]] = []
+    for claim in claims:
+        claim_id = claim["claim_id"]
+        claim_text_key = normalize_for_match(claim.get("claim_text", ""))
+        matched = False
+        for i, src in enumerate(source_pack, start=1):
+            supports_texts = {normalize_for_match(x) for x in src.get("supports_claim_texts", [])}
+            contradicts_texts = {normalize_for_match(x) for x in src.get("contradicts_claim_texts", [])}
+            missing_texts = {normalize_for_match(x) for x in src.get("missing_claim_texts", [])}
+            supports = claim_text_key in supports_texts
+            contradicts = claim_text_key in contradicts_texts
+            missing = claim_text_key in missing_texts
+            if not (supports or contradicts or missing):
+                continue
+            matched = True
+            records.append(
+                {
+                    "evidence_id": str(src.get("evidence_id") or f"sp-{claim_id}-{i}"),
+                    "claim_id": claim_id,
+                    "source_type": str(src.get("source_type") or "source_pack"),
+                    "authority": str(src.get("authority") or "unknown"),
+                    "subject_match": str(src.get("subject_match") or "unknown"),
+                    "quote": str(src.get("quote") or src.get("notes") or ""),
+                    "url": src.get("url"),
+                    "retrieved_at": retrieved_at,
+                    "supports": [claim_id] if supports else [],
+                    "contradicts": [claim_id] if contradicts else [],
+                    "missing": [claim_id] if missing else [],
+                    "scores": {
+                        "retrieval_relevance": 1.0,
+                        "source_authority": 1.0 if src.get("authority") in {"canonical", "official"} else 0.5,
+                        "evidence_coverage": 1.0 if (supports or contradicts) else 0.25,
+                    },
+                }
+            )
+        if not matched:
+            records.append(
+                {
+                    "evidence_id": f"e-{claim_id}",
+                    "claim_id": claim_id,
+                    "source_type": "native_missing_evidence",
+                    "authority": "unknown",
+                    "subject_match": "unknown",
+                    "quote": "No source-pack or deterministic evidence matched this claim.",
+                    "retrieved_at": retrieved_at,
+                    "supports": [],
+                    "contradicts": [],
+                    "missing": [claim_id],
+                    "scores": {"retrieval_relevance": 0.0, "source_authority": 0.0, "evidence_coverage": 0.0},
+                }
+            )
+    return records
+
+
+def verdicts_from_evidence(claims: list[dict[str, Any]], evidence: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_claim: dict[str, list[dict[str, Any]]] = {claim["claim_id"]: [] for claim in claims}
+    for item in evidence:
+        by_claim.setdefault(item.get("claim_id", ""), []).append(item)
+    verdicts: list[dict[str, Any]] = []
+    for claim in claims:
+        claim_id = claim["claim_id"]
+        items = by_claim.get(claim_id, [])
+        supporting = [item for item in items if claim_id in item.get("supports", [])]
+        contradicting = [item for item in items if claim_id in item.get("contradicts", [])]
+        missing = [item for item in items if claim_id in item.get("missing", [])]
+        if supporting and contradicting:
+            truth = "conflicting_evidence"
+            confidence = 0.45
+            reason = "Source pack contains both supporting and contradicting evidence."
+        elif contradicting:
+            truth = "refuted"
+            confidence = max(float(item.get("scores", {}).get("source_authority", 0.5)) for item in contradicting)
+            reason = contradicting[0].get("quote") or "Evidence contradicts the claim."
+        elif supporting:
+            truth = "supported"
+            confidence = max(float(item.get("scores", {}).get("source_authority", 0.5)) for item in supporting)
+            reason = supporting[0].get("quote") or "Evidence supports the claim."
+        elif missing:
+            truth = "not_enough_evidence"
+            confidence = 0.45
+            reason = missing[0].get("quote") or "No sufficient evidence was found."
+        else:
+            truth = "not_enough_evidence"
+            confidence = 0.35
+            reason = "No evidence record was available for this claim."
+        verdicts.append(
+            {
+                "claim_id": claim_id,
+                "truth_verdict": truth,
+                "audit_action": action_for_verdict(truth),
+                "evidence_ids": [item["evidence_id"] for item in items] or [f"e-{claim_id}"],
+                "confidence": round(confidence, 2),
+                "reason": reason,
+            }
+        )
+    return verdicts
+
+
 def native_verdict_for_claim(claim: dict[str, Any]) -> dict[str, Any]:
     text = claim.get("claim_text", "")
     lowered = text.lower()
@@ -441,18 +561,29 @@ def native_verdict_for_claim(claim: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_native_pipeline(article_path: Path) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+def run_native_pipeline(article_path: Path, source_pack_path: Path | None = None) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     text = article_path.read_text(encoding="utf-8", errors="ignore")
     profile = classify_article(text, article_path)
     claims = extract_claim_graph(text, article_path.name)
     plans = plan_evidence(claims)
-    verdicts = [native_verdict_for_claim(claim) for claim in claims]
-    return profile, claims, plans, verdicts
+    pack_path = source_pack_for_article(article_path, source_pack_path)
+    source_pack = load_source_pack(pack_path)
+    if source_pack:
+        evidence = evidence_from_source_pack(claims, source_pack)
+        verdicts = verdicts_from_evidence(claims, evidence)
+    else:
+        verdicts = [native_verdict_for_claim(claim) for claim in claims]
+        evidence = synthesize_evidence(claims, verdicts, "native")
+    if pack_path:
+        profile["source_pack"] = str(pack_path)
+        for plan in plans:
+            plan.setdefault("preferred_sources", []).insert(0, "source_pack")
+    return profile, claims, plans, verdicts, evidence
 
 
-def write_artifacts(out_dir: Path, claims: list[dict[str, Any]], verdicts: list[dict[str, Any]], *, source_mode: str, source_path: Path | None, article_profile: dict[str, Any] | None = None, verification_plan: list[dict[str, Any]] | None = None) -> None:
+def write_artifacts(out_dir: Path, claims: list[dict[str, Any]], verdicts: list[dict[str, Any]], *, source_mode: str, source_path: Path | None, article_profile: dict[str, Any] | None = None, verification_plan: list[dict[str, Any]] | None = None, evidence_records: list[dict[str, Any]] | None = None) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    evidence = synthesize_evidence(claims, verdicts, source_mode)
+    evidence = evidence_records if evidence_records is not None else synthesize_evidence(claims, verdicts, source_mode)
     review_queue = synthesize_review_queue(verdicts)
     suggestions = synthesize_suggestions(claims, verdicts)
     manifest = {
@@ -495,6 +626,7 @@ def main() -> int:
     parser.add_argument("--case", help="Benchmark case directory containing expected-claims/verdicts")
     parser.add_argument("--trace", help="Optional v1 trace JSONL to convert")
     parser.add_argument("--file", help="Run the native deterministic v2 scaffold on a Markdown/text file")
+    parser.add_argument("--source-pack", help="Optional JSON source-pack evidence file for native v2 mode; defaults to ARTICLE_DIR/source-pack.json when present")
     parser.add_argument("--output-dir", required=True, help="Directory to write actual-* artifacts")
     parser.add_argument("--oracle", action="store_true", help="Use benchmark expected artifacts as oracle actual artifacts")
     args = parser.parse_args()
@@ -513,8 +645,9 @@ def main() -> int:
         write_artifacts(out_dir, claims, verdicts, source_mode="v1_trace", source_path=trace)
     elif args.file:
         article_path = Path(args.file)
-        profile, claims, plans, verdicts = run_native_pipeline(article_path)
-        write_artifacts(out_dir, claims, verdicts, source_mode="native", source_path=article_path, article_profile=profile, verification_plan=plans)
+        source_pack = Path(args.source_pack) if args.source_pack else None
+        profile, claims, plans, verdicts, evidence = run_native_pipeline(article_path, source_pack)
+        write_artifacts(out_dir, claims, verdicts, source_mode="native", source_path=article_path, article_profile=profile, verification_plan=plans, evidence_records=evidence)
     else:
         raise SystemExit("provide --file ARTICLE, --oracle --case CASE_DIR, or --trace TRACE_JSONL")
 

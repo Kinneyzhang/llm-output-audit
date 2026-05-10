@@ -1,0 +1,16 @@
+[
+  {
+    "evidence_id": "qa1",
+    "source_type": "benchmark_source_pack",
+    "authority": "canonical",
+    "subject_match": "unknown",
+    "quote": "Evidence contradicts the no-web-interface claim.",
+    "url": "benchmark://public-averitec-av-002/c1",
+    "supports_claim_texts": [],
+    "contradicts_claim_texts": [
+      "The project has no web interface."
+    ],
+    "missing_claim_texts": [],
+    "notes": "Deterministic source-pack record for public benchmark smoke."
+  }
+]

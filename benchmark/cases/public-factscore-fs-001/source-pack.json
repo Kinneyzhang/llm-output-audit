@@ -1,0 +1,30 @@
+[
+  {
+    "evidence_id": "e1",
+    "source_type": "benchmark_source_pack",
+    "authority": "canonical",
+    "subject_match": "unknown",
+    "quote": "Biographical reference supports this fact.",
+    "url": "benchmark://public-factscore-fs-001/c1",
+    "supports_claim_texts": [
+      "Ada Lovelace wrote notes on the Analytical Engine."
+    ],
+    "contradicts_claim_texts": [],
+    "missing_claim_texts": [],
+    "notes": "Deterministic source-pack record for public benchmark smoke."
+  },
+  {
+    "evidence_id": "e2",
+    "source_type": "benchmark_source_pack",
+    "authority": "canonical",
+    "subject_match": "unknown",
+    "quote": "C was developed in the 1970s by Dennis Ritchie.",
+    "url": "benchmark://public-factscore-fs-001/c2",
+    "supports_claim_texts": [],
+    "contradicts_claim_texts": [
+      "Ada Lovelace invented the C programming language."
+    ],
+    "missing_claim_texts": [],
+    "notes": "Deterministic source-pack record for public benchmark smoke."
+  }
+]

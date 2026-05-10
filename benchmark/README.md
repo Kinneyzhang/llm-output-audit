@@ -19,6 +19,9 @@ benchmark/cases/<case-id>/
   human-review.md
   notes.md
 
+  # Optional deterministic source pack for native v2 smoke cases.
+  source-pack.json
+
   # Optional actual auditor outputs, committed only for public smoke cases.
   actual-claims.json
   actual-evidence.jsonl

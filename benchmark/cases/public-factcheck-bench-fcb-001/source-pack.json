@@ -1,0 +1,30 @@
+[
+  {
+    "evidence_id": "e1",
+    "source_type": "benchmark_source_pack",
+    "authority": "canonical",
+    "subject_match": "unknown",
+    "quote": "License metadata supports the claim.",
+    "url": "benchmark://public-factcheck-bench-fcb-001/c1",
+    "supports_claim_texts": [
+      "Tool X is MIT licensed."
+    ],
+    "contradicts_claim_texts": [],
+    "missing_claim_texts": [],
+    "notes": "Deterministic source-pack record for public benchmark smoke."
+  },
+  {
+    "evidence_id": "e2",
+    "source_type": "benchmark_source_pack",
+    "authority": "canonical",
+    "subject_match": "unknown",
+    "quote": "Documentation lists Linux and macOS support.",
+    "url": "benchmark://public-factcheck-bench-fcb-001/c2",
+    "supports_claim_texts": [],
+    "contradicts_claim_texts": [
+      "Tool X only works on Windows."
+    ],
+    "missing_claim_texts": [],
+    "notes": "Deterministic source-pack record for public benchmark smoke."
+  }
+]

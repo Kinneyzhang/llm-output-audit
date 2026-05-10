@@ -168,10 +168,17 @@ jobs:
       - name: v2 benchmark scaffold smoke test
         run: |
           python scripts/build_public_benchmark.py --output /tmp/loa-public-cases --clean-public
+          test -f /tmp/loa-public-cases/public-fever-supported-caddy-go/source-pack.json
           for case in /tmp/loa-public-cases/*; do
             python scripts/audit_v2.py --case "$case" --oracle --output-dir "/tmp/loa-v2-actual/$(basename "$case")"
           done
+          rm -rf /tmp/loa-v2-built-native
+          mkdir -p /tmp/loa-v2-built-native
+          for case in /tmp/loa-public-cases/*; do
+            python scripts/audit_v2.py --file "$case/original.md" --output-dir "/tmp/loa-v2-built-native/$(basename "$case")"
+          done
           python scripts/eval_auditor.py /tmp/loa-public-cases --actual-root /tmp/loa-v2-actual --output /tmp/loa-built-benchmark-report.md --json-output /tmp/loa-built-benchmark-report.json
+          python scripts/eval_auditor.py /tmp/loa-public-cases --actual-root /tmp/loa-v2-built-native --output /tmp/loa-built-native-benchmark-report.md --json-output /tmp/loa-built-native-benchmark-report.json
           python scripts/eval_auditor.py benchmark/cases --output /tmp/loa-benchmark-report.md --json-output /tmp/loa-benchmark-report.json
           rm -rf /tmp/loa-v2-native
           mkdir -p /tmp/loa-v2-native
@@ -197,6 +204,17 @@ jobs:
           assert built['actual_artifact_counts']['suggestions'] == 7
           assert built['actual_artifact_counts']['manifest'] == 7
 
+          built_native = json.loads(Path('/tmp/loa-built-native-benchmark-report.json').read_text())['summary']
+          assert built_native['case_count'] == 7
+          assert built_native['valid_case_count'] == 7
+          assert built_native['actual_available_count'] == 7
+          assert built_native['actual_metric_averages']['claim_precision'] == 1.0
+          assert built_native['actual_metric_averages']['claim_recall'] == 1.0
+          assert built_native['actual_metric_averages']['verdict_accuracy_on_shared_ids'] == 1.0
+          assert not built_native['actual_failure_cases']
+          built_profile = json.loads(Path('/tmp/loa-v2-built-native/public-fever-supported-caddy-go/article-profile.json').read_text())
+          assert built_profile['source_pack'].endswith('source-pack.json')
+
           payload = json.loads(Path('/tmp/loa-benchmark-report.json').read_text())
           summary = payload['summary']
           assert summary['case_count'] >= 8
@@ -217,5 +235,9 @@ jobs:
           assert native['actual_metric_averages']['claim_recall'] == 1.0
           assert native['actual_metric_averages']['verdict_accuracy_on_shared_ids'] == 1.0
           assert not native['actual_failure_cases']
+          profile = json.loads(Path('/tmp/loa-v2-native/public-fever-supported-caddy-go/article-profile.json').read_text())
+          assert profile['source_pack'].endswith('source-pack.json')
+          evidence_line = Path('/tmp/loa-v2-native/public-fever-supported-caddy-go/actual-evidence.jsonl').read_text().splitlines()[0]
+          assert 'benchmark_source_pack' in evidence_line
           print('v2_benchmark_smoke_ok')
           PY

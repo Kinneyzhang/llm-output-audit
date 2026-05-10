@@ -1,0 +1,16 @@
+[
+  {
+    "evidence_id": "src-c-001",
+    "source_type": "benchmark_source_pack",
+    "authority": "canonical",
+    "subject_match": "unknown",
+    "quote": "Should be verified from Caddy official docs or repository metadata.",
+    "url": "benchmark://000-smoke/c-001",
+    "supports_claim_texts": [
+      "Caddy is an open-source web server written in Go."
+    ],
+    "contradicts_claim_texts": [],
+    "missing_claim_texts": [],
+    "notes": "Deterministic source-pack record for public benchmark smoke."
+  }
+]

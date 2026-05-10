@@ -1,0 +1,16 @@
+[
+  {
+    "evidence_id": "e1",
+    "source_type": "benchmark_source_pack",
+    "authority": "canonical",
+    "subject_match": "unknown",
+    "quote": "Dataset-provided label.",
+    "url": "benchmark://public-fever-supported-caddy-go/c1",
+    "supports_claim_texts": [
+      "Caddy is written in Go."
+    ],
+    "contradicts_claim_texts": [],
+    "missing_claim_texts": [],
+    "notes": "Deterministic source-pack record for public benchmark smoke."
+  }
+]

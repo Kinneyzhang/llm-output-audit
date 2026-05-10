@@ -140,6 +140,17 @@ python3 scripts/audit_v2.py \
 
 This writes `article-profile.json` and `verification-plan.json` in addition to the evaluator-facing `actual-*` artifacts.
 
+Native mode can consume a deterministic source pack. If `ARTICLE_DIR/source-pack.json` exists, it is loaded automatically; otherwise pass it explicitly:
+
+```bash
+python3 scripts/audit_v2.py \
+  --file path/to/article.md \
+  --source-pack path/to/source-pack.json \
+  --output-dir /tmp/loa-v2-artifacts/native-run
+```
+
+A source pack is a JSON array of evidence records with `supports_claim_texts`, `contradicts_claim_texts`, or `missing_claim_texts`. The native judge converts those records into the Evidence Ledger and derives verdicts from support/contradiction/missing evidence instead of using Markdown-report text.
+
 V1 trace conversion:
 
 ```bash
