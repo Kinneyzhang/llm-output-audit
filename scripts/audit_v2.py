@@ -19,6 +19,8 @@ import argparse
 import json
 import os
 import re
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -601,6 +603,298 @@ Article:
     return claims
 
 
+
+GITHUB_ALIAS_REPOS = {
+    "khoj": "khoj-ai/khoj",
+    "hermes agent": "NousResearch/hermes-agent",
+    "claude code": "anthropics/claude-code",
+    "codex": "openai/codex",
+    "gpt researcher": "assafelovic/gpt-researcher",
+    "gpt-researcher": "assafelovic/gpt-researcher",
+    "storm": "stanford-oval/storm",
+    "caddy": "caddyserver/caddy",
+    "local deep research": "LearningCircuit/local-deep-research",
+    "local-deep-research": "LearningCircuit/local-deep-research",
+}
+
+
+def http_json(url: str, *, headers: dict[str, str] | None = None, timeout: int = 20) -> Any | None:
+    req = urllib.request.Request(url, headers={"User-Agent": "llm-output-audit-v2/0.1", **(headers or {})})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+    except Exception:
+        return None
+
+
+def http_post_json(url: str, payload: dict[str, Any], *, headers: dict[str, str] | None = None, timeout: int = 30) -> Any | None:
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers={"User-Agent": "llm-output-audit-v2/0.1", "Content-Type": "application/json", **(headers or {})}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+    except Exception:
+        return None
+
+
+def extract_claim_number(text: str) -> int | None:
+    m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*([kKmM万千]?)", text)
+    if not m:
+        return None
+    value = float(m.group(1))
+    suffix = m.group(2).lower()
+    if suffix == "k" or suffix == "千":
+        value *= 1000
+    elif suffix == "m":
+        value *= 1_000_000
+    elif suffix == "万":
+        value *= 10_000
+    return int(value)
+
+
+def claim_mentions_stars(text: str) -> bool:
+    lowered = text.lower()
+    return bool(re.search(r"\bstars?\b|\bstargazers?\b", lowered)) or "星标" in text
+
+
+def discover_github_repo(claim: dict[str, Any]) -> str | None:
+    text = " ".join(str(claim.get(k, "")) for k in ("claim_text", "subject", "object"))
+    m = re.search(r"github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)", text)
+    if m:
+        return m.group(1).rstrip("/.")
+    lowered = text.lower()
+    for alias, repo in sorted(GITHUB_ALIAS_REPOS.items(), key=lambda kv: -len(kv[0])):
+        if alias in lowered:
+            return repo
+    if "github" not in lowered and "repo" not in lowered and not claim_mentions_stars(text):
+        return None
+    query = urllib.parse.quote(re.sub(r"\b(stars?|github|repo|repository|星标|开源)\b", " ", text, flags=re.I)[:120])
+    data = http_json(f"https://api.github.com/search/repositories?q={query}&per_page=1")
+    if isinstance(data, dict) and data.get("items"):
+        full = data["items"][0].get("full_name")
+        if isinstance(full, str):
+            return full
+    return None
+
+
+def github_repo_evidence(claim: dict[str, Any]) -> list[dict[str, Any]]:
+    repo = discover_github_repo(claim)
+    if not repo:
+        return []
+    data = http_json(f"https://api.github.com/repos/{urllib.parse.quote(repo, safe='/')}")
+    if not isinstance(data, dict) or data.get("message") == "Not Found":
+        return []
+    claim_id = claim["claim_id"]
+    text = claim.get("claim_text", "")
+    lowered = text.lower()
+    supports: list[str] = []
+    contradicts: list[str] = []
+    quote_bits = [
+        f"GitHub API repo {repo}: stars={data.get('stargazers_count')}, forks={data.get('forks_count')}, language={data.get('language')}, archived={data.get('archived')}, license={(data.get('license') or {}).get('spdx_id')}, pushed_at={data.get('pushed_at')}."
+    ]
+    if claim_mentions_stars(text):
+        claimed = extract_claim_number(text)
+        actual = data.get("stargazers_count")
+        if isinstance(claimed, int) and isinstance(actual, int):
+            tolerance = max(1000, int(actual * 0.05))
+            if abs(actual - claimed) <= tolerance:
+                supports.append(claim_id)
+            else:
+                contradicts.append(claim_id)
+            quote_bits.append(f"Claimed stars≈{claimed}; live GitHub stars={actual}; tolerance={tolerance}.")
+    if re.search(r"\bforks?\b|分叉|fork", lowered):
+        claimed = extract_claim_number(text)
+        actual = data.get("forks_count")
+        if isinstance(claimed, int) and isinstance(actual, int):
+            tolerance = max(100, int(actual * 0.05))
+            if abs(actual - claimed) <= tolerance:
+                supports.append(claim_id)
+            else:
+                contradicts.append(claim_id)
+            quote_bits.append(f"Claimed forks≈{claimed}; live GitHub forks={actual}; tolerance={tolerance}.")
+    if ("latest commit" in lowered or "最近提交" in text or "latest push" in lowered) and data.get("pushed_at"):
+        date_match = re.search(r"20\d{2}-\d{2}-\d{2}", text)
+        if date_match:
+            pushed_date = str(data.get("pushed_at"))[:10]
+            if pushed_date == date_match.group(0):
+                supports.append(claim_id)
+            else:
+                contradicts.append(claim_id)
+            quote_bits.append(f"Claimed latest commit date={date_match.group(0)}; GitHub pushed_at date={pushed_date}.")
+    if "archived" in lowered or "归档" in text:
+        archived = bool(data.get("archived"))
+        says_archived = "not archived" not in lowered and "未归档" not in text and "没有归档" not in text
+        if archived == says_archived:
+            supports.append(claim_id)
+        else:
+            contradicts.append(claim_id)
+    if ("written in go" in lowered or "go 语言" in text or "用 go" in text) and str(data.get("language", "")).lower() == "go":
+        supports.append(claim_id)
+    if ("written in python" in lowered or "python 编写" in text) and str(data.get("language", "")).lower() != "python":
+        contradicts.append(claim_id)
+    if not supports and not contradicts:
+        # Repo metadata is relevant but not enough by itself for this claim.
+        missing = [claim_id]
+    else:
+        missing = []
+    return [{
+        "evidence_id": f"gh-{claim_id}",
+        "claim_id": claim_id,
+        "source_type": "github_api",
+        "authority": "canonical",
+        "subject_match": "strong",
+        "quote": " ".join(quote_bits),
+        "url": f"https://github.com/{repo}",
+        "retrieved_at": now_iso(),
+        "supports": sorted(set(supports)),
+        "contradicts": sorted(set(contradicts)),
+        "missing": missing,
+        "scores": {"retrieval_relevance": 0.95, "source_authority": 1.0, "evidence_coverage": 1.0 if supports or contradicts else 0.35},
+    }]
+
+
+def tavily_evidence(claim: dict[str, Any], max_results: int = 3) -> list[dict[str, Any]]:
+    load_env()
+    key = os.environ.get("TAVILY_API_KEY")
+    if not key:
+        return []
+    text = claim.get("claim_text", "")
+    payload = {"api_key": key, "query": text, "max_results": max_results, "search_depth": "basic"}
+    data = http_post_json("https://api.tavily.com/search", payload, timeout=25)
+    if not isinstance(data, dict):
+        return []
+    out = []
+    for i, r in enumerate(data.get("results", [])[:max_results], start=1):
+        out.append({
+            "evidence_id": f"web-{claim['claim_id']}-{i}",
+            "claim_id": claim["claim_id"],
+            "source_type": "tavily_web",
+            "authority": "secondary",
+            "subject_match": "unknown",
+            "quote": str(r.get("content") or r.get("title") or "")[:1000],
+            "url": r.get("url"),
+            "retrieved_at": now_iso(),
+            "supports": [],
+            "contradicts": [],
+            "missing": [claim["claim_id"]],
+            "scores": {"retrieval_relevance": float(r.get("score") or 0.5), "source_authority": 0.55, "evidence_coverage": 0.25},
+        })
+    return out
+
+
+def wikipedia_evidence(claim: dict[str, Any]) -> list[dict[str, Any]]:
+    subject = str(claim.get("subject") or "").strip()
+    if not subject or subject == "unknown" or len(subject) > 80:
+        return []
+    query = urllib.parse.quote(subject)
+    data = http_json(f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&format=json&srlimit=1")
+    try:
+        item = data["query"]["search"][0]
+    except Exception:
+        return []
+    return [{
+        "evidence_id": f"wiki-{claim['claim_id']}",
+        "claim_id": claim["claim_id"],
+        "source_type": "wikipedia",
+        "authority": "reference",
+        "subject_match": "medium",
+        "quote": re.sub(r"<[^>]+>", "", str(item.get("snippet") or ""))[:800],
+        "url": "https://en.wikipedia.org/wiki/" + urllib.parse.quote(str(item.get("title", "")).replace(" ", "_")),
+        "retrieved_at": now_iso(),
+        "supports": [],
+        "contradicts": [],
+        "missing": [claim["claim_id"]],
+        "scores": {"retrieval_relevance": 0.55, "source_authority": 0.65, "evidence_coverage": 0.25},
+    }]
+
+
+def judge_claim_with_llm(claim: dict[str, Any], evidence: list[dict[str, Any]]) -> dict[str, Any] | None:
+    snippets = []
+    for i, item in enumerate(evidence[:6], start=1):
+        snippets.append({"index": i, "source_type": item.get("source_type"), "url": item.get("url"), "quote": item.get("quote", "")[:900]})
+    if not snippets:
+        return None
+    prompt = {
+        "claim": claim.get("claim_text"),
+        "subject": claim.get("subject"),
+        "verifiability": claim.get("verifiability"),
+        "evidence": snippets,
+        "task": "Judge whether the evidence supports, refutes, is conflicting, or is insufficient for the claim. Return JSON only. Be conservative: a bug report, support question, or narrow failure mode does not refute a general capability claim unless an authoritative source explicitly says the capability is unsupported.",
+        "output_shape": {"truth_verdict": "supported|partially_supported|refuted|conflicting_evidence|not_enough_evidence", "confidence": 0.0, "reason": "short", "supporting_indices": [], "contradicting_indices": []},
+    }
+    payload = call_llm_json([
+        {"role": "system", "content": "You are a strict fact-check judge. Use only supplied evidence. Do not use hidden knowledge. Return strict JSON."},
+        {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+    ], temperature=0.0, timeout=90)
+    if not isinstance(payload, dict):
+        return None
+    truth = str(payload.get("truth_verdict") or "not_enough_evidence")
+    if truth not in VERDICT_TO_QUEUE:
+        truth = "not_enough_evidence"
+    return {
+        "truth_verdict": truth,
+        "confidence": max(0.0, min(1.0, float(payload.get("confidence") or confidence_for_verdict(truth)))),
+        "reason": str(payload.get("reason") or "LLM judge evaluated supplied evidence."),
+        "supporting_indices": [int(x) for x in payload.get("supporting_indices", []) if isinstance(x, int) or str(x).isdigit()],
+        "contradicting_indices": [int(x) for x in payload.get("contradicting_indices", []) if isinstance(x, int) or str(x).isdigit()],
+    }
+
+
+def live_evidence_for_claim(claim: dict[str, Any], plan: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    claim_id = claim["claim_id"]
+    ver = claim.get("verifiability")
+    if ver in {"local", "not_publicly_verifiable", "not_factual"}:
+        return [{
+            "evidence_id": f"local-{claim_id}", "claim_id": claim_id, "source_type": "local_review_checklist",
+            "authority": "local", "subject_match": "contextual",
+            "quote": "This claim depends on local/private/planning context; verify against local files, logs, deployment state, or human owner knowledge instead of public web search.",
+            "retrieved_at": now_iso(), "supports": [], "contradicts": [], "missing": [claim_id],
+            "scores": {"retrieval_relevance": 0.8, "source_authority": 0.0, "evidence_coverage": 0.0},
+        }]
+    records: list[dict[str, Any]] = []
+    preferred = set((plan or {}).get("preferred_sources", []))
+    if "github_api" in preferred or "source_repo" in preferred or "github" in claim.get("claim_text", "").lower() or claim_mentions_stars(claim.get("claim_text", "")):
+        records.extend(github_repo_evidence(claim))
+    if not any(r.get("supports") or r.get("contradicts") for r in records):
+        records.extend(tavily_evidence(claim, max_results=3))
+    if not records and claim.get("subject") not in {None, "unknown"}:
+        records.extend(wikipedia_evidence(claim))
+    if not records:
+        return evidence_from_source_pack([claim], [])
+    # If deterministic sources did not decide, ask an LLM to judge the retrieved snippets.
+    if not any(r.get("supports") or r.get("contradicts") for r in records):
+        judged = judge_claim_with_llm(claim, records)
+        if judged:
+            support_idxs = set(judged.get("supporting_indices", []))
+            contradict_idxs = set(judged.get("contradicting_indices", []))
+            for idx, rec in enumerate(records, start=1):
+                rec["missing"] = []
+                if idx in support_idxs or judged["truth_verdict"] in {"supported", "partially_supported"} and not support_idxs and idx == 1:
+                    rec["supports"] = [claim_id]
+                    rec["scores"]["evidence_coverage"] = 0.8
+                elif idx in contradict_idxs or judged["truth_verdict"] == "refuted" and not contradict_idxs and idx == 1:
+                    rec["contradicts"] = [claim_id]
+                    rec["scores"]["evidence_coverage"] = 0.8
+                else:
+                    rec["missing"] = [claim_id]
+            records.append({
+                "evidence_id": f"judge-{claim_id}", "claim_id": claim_id, "source_type": "llm_hybrid_judge",
+                "authority": "derived", "subject_match": "derived", "quote": judged["reason"], "retrieved_at": now_iso(),
+                "supports": [claim_id] if judged["truth_verdict"] in {"supported", "partially_supported"} else [],
+                "contradicts": [claim_id] if judged["truth_verdict"] == "refuted" else [],
+                "missing": [claim_id] if judged["truth_verdict"] == "not_enough_evidence" else [],
+                "scores": {"retrieval_relevance": 0.7, "source_authority": judged["confidence"], "evidence_coverage": judged["confidence"]},
+            })
+    return records
+
+
+def gather_live_evidence(claims: list[dict[str, Any]], plans: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    plan_by_id = {p.get("claim_id"): p for p in plans}
+    records: list[dict[str, Any]] = []
+    for claim in claims:
+        records.extend(live_evidence_for_claim(claim, plan_by_id.get(claim.get("claim_id"))))
+    return records
+
 def plan_evidence(claims: list[dict[str, Any]]) -> list[dict[str, Any]]:
     plans = []
     for claim in claims:
@@ -712,9 +1006,19 @@ def verdicts_from_evidence(claims: list[dict[str, Any]], evidence: list[dict[str
             confidence = 0.45
             reason = "Source pack contains both supporting and contradicting evidence."
         elif contradicting:
-            truth = "refuted"
-            confidence = max(float(item.get("scores", {}).get("source_authority", 0.5)) for item in contradicting)
-            reason = contradicting[0].get("quote") or "Evidence contradicts the claim."
+            strong_contradicting = [
+                item for item in contradicting
+                if item.get("authority") in {"canonical", "official", "primary"}
+                or item.get("source_type") in {"benchmark_source_pack", "github_api", "source_pack"}
+            ]
+            if strong_contradicting:
+                truth = "refuted"
+                confidence = max(float(item.get("scores", {}).get("source_authority", 0.5)) for item in strong_contradicting)
+                reason = strong_contradicting[0].get("quote") or "High-authority evidence contradicts the claim."
+            else:
+                truth = "not_enough_evidence"
+                confidence = 0.5
+                reason = "Secondary search evidence may contradict the claim, but no authoritative source was strong enough for an automatic refutation. Route to citation/human review."
         elif supporting:
             truth = "supported"
             confidence = max(float(item.get("scores", {}).get("source_authority", 0.5)) for item in supporting)
@@ -792,7 +1096,7 @@ def native_verdict_for_claim(claim: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_native_pipeline(article_path: Path, source_pack_path: Path | None = None, max_claims: int = DEFAULT_MAX_CLAIMS, claim_extractor: str = "hybrid") -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+def run_native_pipeline(article_path: Path, source_pack_path: Path | None = None, max_claims: int = DEFAULT_MAX_CLAIMS, claim_extractor: str = "hybrid", evidence_mode: str = "auto") -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     text = article_path.read_text(encoding="utf-8", errors="ignore")
     profile = classify_article(text, article_path)
     pack_path = source_pack_for_article(article_path, source_pack_path)
@@ -815,13 +1119,16 @@ def run_native_pipeline(article_path: Path, source_pack_path: Path | None = None
     profile["claim_extractor"] = extractor_used
     plans = plan_evidence(claims)
     source_pack = load_source_pack(pack_path)
+    profile["evidence_mode"] = "source_pack" if source_pack else evidence_mode
     if source_pack:
         evidence = evidence_from_source_pack(claims, source_pack)
         verdicts = verdicts_from_evidence(claims, evidence)
+    elif evidence_mode in {"live", "auto"}:
+        evidence = gather_live_evidence(claims, plans)
+        verdicts = verdicts_from_evidence(claims, evidence)
     else:
-        # No source pack: create missing-evidence ledger records first, then let
-        # the same evidence-ledger judge decide whether the right action is
-        # citation, local verification, or not-publicly-verifiable review.
+        # Missing-evidence mode is deterministic and CI-safe; it is useful for
+        # artifact-contract smoke tests and offline development.
         evidence = evidence_from_source_pack(claims, [])
         verdicts = verdicts_from_evidence(claims, evidence)
     if pack_path:
@@ -931,6 +1238,7 @@ def main() -> int:
     parser.add_argument("--source-pack", help="Optional JSON source-pack evidence file for native v2 mode; defaults to ARTICLE_DIR/source-pack.json when present")
     parser.add_argument("--max-claims", type=int, default=DEFAULT_MAX_CLAIMS, help="Maximum native v2 claims to keep after article-aware filtering")
     parser.add_argument("--claim-extractor", choices=["rule", "llm", "hybrid"], default="hybrid", help="Claim graph extractor for native v2 mode. hybrid uses LLM when available and rule fallback otherwise; source-pack benchmark cases remain deterministic.")
+    parser.add_argument("--evidence-mode", choices=["auto", "live", "missing"], default="auto", help="Evidence gathering mode for native v2 mode. auto/live query available source adapters when no source-pack is present; missing writes offline review records only.")
     parser.add_argument("--output-dir", required=True, help="Directory to write actual-* artifacts")
     parser.add_argument("--oracle", action="store_true", help="Use benchmark expected artifacts as oracle actual artifacts")
     args = parser.parse_args()
@@ -950,7 +1258,7 @@ def main() -> int:
     elif args.file:
         article_path = Path(args.file)
         source_pack = Path(args.source_pack) if args.source_pack else None
-        profile, claims, plans, verdicts, evidence = run_native_pipeline(article_path, source_pack, max_claims=args.max_claims, claim_extractor=args.claim_extractor)
+        profile, claims, plans, verdicts, evidence = run_native_pipeline(article_path, source_pack, max_claims=args.max_claims, claim_extractor=args.claim_extractor, evidence_mode=args.evidence_mode)
         write_artifacts(out_dir, claims, verdicts, source_mode="native", source_path=article_path, article_profile=profile, verification_plan=plans, evidence_records=evidence)
     else:
         raise SystemExit("provide --file ARTICLE, --oracle --case CASE_DIR, or --trace TRACE_JSONL")

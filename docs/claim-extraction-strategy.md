@@ -90,3 +90,32 @@ On three private BuJo validation articles, the rule-only sentence splitter previ
 - Caddy architecture analysis: `40` claims
 
 The selected claims are more article-aware: project stats, architecture/capability claims, causal claims, public-vs-planning distinctions, and local/private verifiability labels. This is not the final quality bar, but it is much closer to a usable audit experience than sentence-level splitting.
+
+
+## Evidence planning and live judging
+
+After claim extraction, v2 now writes a `verification-plan.json` for each selected claim and can fill the Evidence Ledger with live sources:
+
+```text
+claim graph
+  -> verification plan
+  -> source adapters / local checklist
+  -> actual-evidence.jsonl
+  -> evidence-ledger-driven verdicts
+```
+
+The live path currently uses:
+
+- GitHub API for source-owned repository metadata such as stars, forks, language, archive status, license, and freshness.
+- Tavily web search when configured, for official docs and current web evidence.
+- Wikipedia fallback for broad public entities.
+- Local/private checklist records for `local` and `not_publicly_verifiable` claims.
+- LLM hybrid judging over retrieved snippets, using only supplied evidence.
+
+The judge is intentionally conservative. A support ticket or narrow bug report does not automatically refute a general capability claim; automatic `refuted` verdicts require high-authority evidence such as source packs, source-owned APIs, or official/canonical records.
+
+Empirical live private smoke with `--claim-extractor hybrid --max-claims 20 --evidence-mode auto` produced:
+
+- GPT Researcher usage guide: `20` claims, `85` evidence records; mostly `supported`, remaining `not_enough_evidence`.
+- Emacs Lisp finetune plan: `17–20` claims depending on LLM extraction; public claims separated from `not_publicly_verifiable` planning/local claims.
+- Caddy architecture analysis: `20` claims; live GitHub/web evidence plus hybrid judge filled the ledger instead of producing citation-only floods.

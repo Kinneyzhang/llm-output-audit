@@ -234,6 +234,14 @@ def tool_install_snippet(args: dict[str, Any]) -> dict[str, Any]:
 def run_audit_v2_file(args: dict[str, Any], file_path: Path, output_dir: Path) -> dict[str, Any]:
     timeout = int(args.get("timeout") or 600)
     cmd = [sys.executable, str(audit_v2_script()), "--file", str(file_path), "--output-dir", str(output_dir)]
+    if args.get("claim_extractor"):
+        cmd.extend(["--claim-extractor", str(args["claim_extractor"])])
+    if args.get("max_claims"):
+        cmd.extend(["--max-claims", str(int(args["max_claims"]))])
+    if args.get("evidence_mode"):
+        cmd.extend(["--evidence-mode", str(args["evidence_mode"])])
+    if args.get("source_pack"):
+        cmd.extend(["--source-pack", str(Path(str(args["source_pack"])).expanduser().resolve())])
     proc = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout)
     manifest_path = output_dir / "actual-manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
@@ -338,10 +346,18 @@ def tools_list() -> list[dict[str, Any]]:
         },
         {
             "name": "audit_file_v2",
-            "description": "Run the deterministic v2 artifact pipeline on a local Markdown/text file and write normalized actual-* artifacts.",
+            "description": "Run the v2 artifact pipeline on a local Markdown/text file and write normalized actual-* artifacts, optionally using LLM claim extraction and live evidence gathering.",
             "inputSchema": {
                 "type": "object",
-                "properties": {"file": {"type": "string"}, "output_dir": {"type": "string"}, "timeout": {"type": "integer", "minimum": 10, "maximum": 7200, "default": 600}},
+                "properties": {
+                    "file": {"type": "string"},
+                    "output_dir": {"type": "string"},
+                    "claim_extractor": {"type": "string", "enum": ["rule", "llm", "hybrid"], "default": "hybrid"},
+                    "evidence_mode": {"type": "string", "enum": ["auto", "live", "missing"], "default": "auto"},
+                    "max_claims": {"type": "integer", "minimum": 1, "maximum": 200, "default": 80},
+                    "source_pack": {"type": "string"},
+                    "timeout": {"type": "integer", "minimum": 10, "maximum": 7200, "default": 600},
+                },
                 "required": ["file"],
             },
         },

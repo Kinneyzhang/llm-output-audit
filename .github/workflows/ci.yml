@@ -148,7 +148,7 @@ jobs:
           text = recv()['result']['content'][0]['text']
           assert 'mcp_server.py' in text
           artifact_dir = tempfile.mkdtemp(prefix='loa-mcp-v2-')
-          send({'jsonrpc': '2.0', 'id': 4, 'method': 'tools/call', 'params': {'name': 'audit_file_v2', 'arguments': {'file': 'benchmark/cases/public-fever-supported-caddy-go/original.md', 'output_dir': artifact_dir}}})
+          send({'jsonrpc': '2.0', 'id': 4, 'method': 'tools/call', 'params': {'name': 'audit_file_v2', 'arguments': {'file': 'benchmark/cases/public-fever-supported-caddy-go/original.md', 'output_dir': artifact_dir, 'claim_extractor': 'hybrid', 'evidence_mode': 'auto', 'max_claims': 10}}})
           audit_v2 = json.loads(recv()['result']['content'][0]['text'])
           assert audit_v2['ok'], audit_v2
           send({'jsonrpc': '2.0', 'id': 5, 'method': 'tools/call', 'params': {'name': 'summarize_artifacts', 'arguments': {'artifact_dir': artifact_dir}}})

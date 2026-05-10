@@ -120,7 +120,7 @@ Run metadata:
 
 ## Current writer
 
-`scripts/audit_v2.py` is the first deterministic writer.
+`scripts/audit_v2.py` is the first native writer. It remains CI-safe when source packs are present or `--evidence-mode missing` is used, but real article runs can now use live source adapters plus an LLM-assisted judge.
 
 Benchmark oracle smoke run:
 
@@ -137,11 +137,20 @@ Native deterministic/hybrid v2 scaffold:
 python3 scripts/audit_v2.py \
   --file path/to/article.md \
   --claim-extractor hybrid \
+  --evidence-mode auto \
   --max-claims 80 \
   --output-dir /tmp/loa-v2-artifacts/native-run
 ```
 
 This writes `article-profile.json`, `verification-plan.json`, and a human-readable `actual-report.md` in addition to the evaluator-facing `actual-*` JSON/JSONL artifacts. Native mode keeps at most `80` claims by default after article-aware filtering; override with `--max-claims N` when doing deeper review. See [`claim-extraction-strategy.md`](claim-extraction-strategy.md) for why v2 combines whole-article LLM extraction with claim-level evidence ledgers.
+
+Evidence modes:
+
+- `--evidence-mode auto` — default. Use deterministic `source-pack.json` when present; otherwise gather live evidence from available adapters.
+- `--evidence-mode live` — force live evidence gathering when no source pack is used.
+- `--evidence-mode missing` — offline/CI-safe mode that writes review records without network evidence.
+
+Current live adapters include GitHub API metadata, Tavily web search when `TAVILY_API_KEY` is configured, Wikipedia fallback, local/private review checklists, and an LLM hybrid judge over retrieved snippets. Refutations are conservative: secondary web snippets alone do not create automatic `refuted` verdicts unless high-authority evidence supports the contradiction.
 
 Native mode can consume a deterministic source pack. If `ARTICLE_DIR/source-pack.json` exists, it is loaded automatically; otherwise pass it explicitly:
 

@@ -1,8 +1,8 @@
 # LLM Output Audit v2 Design
 
-Status: design scaffold  
+Status: native v2 scaffold with LLM-assisted claim extraction and live evidence loop  
 Branch: `v2-design`  
-Scope: architecture and benchmark foundation only; do not replace the v1 engine yet.
+Scope: v2 remains an alpha design branch; v1 is still the stable release until benchmark coverage and live-source quality are broader.
 
 ## 1. Product goal
 
@@ -50,7 +50,7 @@ audit-artifacts/
   source-pack.json        # optional deterministic benchmark/local evidence input
 ```
 
-The native scaffold now consumes `source-pack.json` when present and derives verdicts from evidence support/contradiction/missing markers. This keeps the judge evidence-ledger-driven instead of hard-coding Markdown verdicts.
+The native scaffold now consumes `source-pack.json` when present and derives verdicts from evidence support/contradiction/missing markers. For real articles without a source pack, it can gather live evidence through source adapters such as GitHub API, Tavily web search, Wikipedia fallback, and local/private review checklists, then use an LLM hybrid judge over the retrieved snippets. This keeps the judge evidence-ledger-driven instead of hard-coding Markdown verdicts.
 
 The native v2 engine may also emit richer intermediate planning files later:
 
