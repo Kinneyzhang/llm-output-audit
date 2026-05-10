@@ -1,0 +1,2 @@
+{"id": "supported-caddy-go", "claim": "Caddy is written in Go.", "label": "SUPPORTS", "evidence": [{"source": "Wikipedia/Caddy docs", "text": "Caddy is an open source web server written in Go."}]}
+{"id": "refuted-python-caddy", "claim": "Caddy is primarily written in Python.", "label": "REFUTES", "evidence": [{"source": "Caddy repository", "text": "The Caddy project is primarily Go."}]}

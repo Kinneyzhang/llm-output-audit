@@ -1,0 +1,22 @@
+[
+  {
+    "claim_id": "c1",
+    "truth_verdict": "supported",
+    "audit_action": "keep",
+    "evidence_ids": [
+      "e1"
+    ],
+    "confidence": 1.0,
+    "reason": "Biographical reference supports this fact."
+  },
+  {
+    "claim_id": "c2",
+    "truth_verdict": "refuted",
+    "audit_action": "rewrite",
+    "evidence_ids": [
+      "e2"
+    ],
+    "confidence": 1.0,
+    "reason": "C was developed in the 1970s by Dennis Ritchie."
+  }
+]

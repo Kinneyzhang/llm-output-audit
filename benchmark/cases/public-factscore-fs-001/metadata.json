@@ -1,0 +1,11 @@
+{
+  "case_id": "public-factscore-fs-001",
+  "layer": "public_core",
+  "source_dataset": "factscore",
+  "input_type": "atomic_fact",
+  "visibility": "public-synthetic-or-sample",
+  "article_type": "public_benchmark_case",
+  "primary_subjects": [
+    "factscore"
+  ]
+}

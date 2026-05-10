@@ -1,0 +1,22 @@
+[
+  {
+    "claim_id": "c1",
+    "truth_verdict": "supported",
+    "audit_action": "keep",
+    "evidence_ids": [
+      "e1"
+    ],
+    "confidence": 1.0,
+    "reason": "License metadata supports the claim."
+  },
+  {
+    "claim_id": "c2",
+    "truth_verdict": "refuted",
+    "audit_action": "rewrite",
+    "evidence_ids": [
+      "e2"
+    ],
+    "confidence": 1.0,
+    "reason": "Documentation lists Linux and macOS support."
+  }
+]

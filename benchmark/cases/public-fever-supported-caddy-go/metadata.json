@@ -1,0 +1,11 @@
+{
+  "case_id": "public-fever-supported-caddy-go",
+  "layer": "public_core",
+  "source_dataset": "fever",
+  "input_type": "claim",
+  "visibility": "public-synthetic-or-sample",
+  "article_type": "public_benchmark_case",
+  "primary_subjects": [
+    "fever"
+  ]
+}

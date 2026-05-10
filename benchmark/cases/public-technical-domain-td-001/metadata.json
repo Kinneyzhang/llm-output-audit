@@ -1,0 +1,11 @@
+{
+  "case_id": "public-technical-domain-td-001",
+  "layer": "technical_domain",
+  "source_dataset": "technical-domain",
+  "input_type": "article",
+  "visibility": "public-synthetic-or-sample",
+  "article_type": "technical_domain_case",
+  "primary_subjects": [
+    "technical-domain"
+  ]
+}

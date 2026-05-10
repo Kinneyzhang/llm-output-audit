@@ -1,5 +1,8 @@
 {
   "case_id": "000-smoke",
+  "layer": "technical_domain",
+  "source_dataset": "synthetic",
+  "input_type": "article",
   "visibility": "public",
   "article_type": "technical_explainer",
   "primary_subjects": [

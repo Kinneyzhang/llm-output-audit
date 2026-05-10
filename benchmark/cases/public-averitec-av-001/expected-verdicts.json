@@ -1,0 +1,12 @@
+[
+  {
+    "claim_id": "c1",
+    "truth_verdict": "supported",
+    "audit_action": "keep",
+    "evidence_ids": [
+      "qa1"
+    ],
+    "confidence": 1.0,
+    "reason": "The answer and evidence support the deployment claim."
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "case_id": "public-factcheck-bench-fcb-001",
+  "layer": "public_core",
+  "source_dataset": "factcheck-bench",
+  "input_type": "article",
+  "visibility": "public-synthetic-or-sample",
+  "article_type": "public_benchmark_case",
+  "primary_subjects": [
+    "factcheck-bench"
+  ]
+}

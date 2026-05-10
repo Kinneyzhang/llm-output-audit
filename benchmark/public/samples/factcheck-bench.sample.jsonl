@@ -1,0 +1,1 @@
+{"id": "fcb-001", "response": "Tool X is MIT licensed and only works on Windows.", "claims": [{"claim": "Tool X is MIT licensed.", "label": "Supported", "claim_type": "STATUS", "reason": "License metadata supports the claim."}, {"claim": "Tool X only works on Windows.", "label": "Refuted", "claim_type": "COMPAT", "reason": "Documentation lists Linux and macOS support."}]}

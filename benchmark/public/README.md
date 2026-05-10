@@ -21,3 +21,18 @@ python3 adapter.py --input RAW_DATA --output benchmark/cases/<target> --sample 5
 ```
 
 Adapters must be deterministic and must not call an LLM.
+
+## Smoke conversion
+
+The repository includes small JSONL samples under `benchmark/public/samples/`. They are synthetic/sample-shaped records, not full upstream datasets.
+
+Example:
+
+```bash
+python3 benchmark/public/averitec/adapter.py \
+  --input benchmark/public/samples/averitec.sample.jsonl \
+  --output benchmark/cases \
+  --sample 10
+```
+
+Generated public cases live in `benchmark/cases/public-*` and are safe for CI.

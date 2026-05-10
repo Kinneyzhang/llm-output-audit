@@ -79,6 +79,8 @@ def risky_dimensions(scorecard: dict[str, str]) -> list[str]:
 def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     """Aggregate scorecards into coarse product-risk signals."""
     article_types: Counter[str] = Counter()
+    layers: Counter[str] = Counter()
+    source_datasets: Counter[str] = Counter()
     quality_counts: dict[str, Counter[str]] = {field: Counter() for field in QUALITY_FIELDS}
     risky_cases: list[dict[str, Any]] = []
     product_decisions: Counter[str] = Counter()
@@ -86,7 +88,11 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
 
     for result in results:
         article_type = result.get("article_type") or "unknown"
+        layer = result.get("layer") or "unknown"
+        source_dataset = result.get("source_dataset") or "unknown"
         article_types[article_type] += 1
+        layers[layer] += 1
+        source_datasets[source_dataset] += 1
         by_article_type[article_type].append(result)
         scorecard = result.get("scorecard") or {}
         for field in QUALITY_FIELDS:
@@ -116,6 +122,8 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
         "case_count": len(results),
         "valid_case_count": sum(1 for r in results if r.get("ok")),
         "article_types": dict(article_types),
+        "layers": dict(layers),
+        "source_datasets": dict(source_datasets),
         "quality_counts": {field: dict(counts) for field, counts in quality_counts.items()},
         "type_quality": type_quality,
         "risky_cases": risky_cases,
@@ -142,6 +150,9 @@ def validate_case(case_dir: Path) -> dict[str, Any]:
     result.update(
         {
             "article_type": metadata.get("article_type"),
+            "layer": metadata.get("layer", "unknown"),
+            "source_dataset": metadata.get("source_dataset", "unknown"),
+            "input_type": metadata.get("input_type", "unknown"),
             "primary_subjects": metadata.get("primary_subjects", []),
             "expected_claims": len(expected_claims),
             "expected_verdicts": len(expected_verdicts),
@@ -168,9 +179,15 @@ def render_markdown(results: list[dict[str, Any]]) -> str:
         "",
         "## Aggregate Scorecard",
         "",
-        "### Article types",
+        "### Layers",
         "",
     ]
+    for layer, count in sorted(summary["layers"].items()):
+        lines.append(f"- `{layer}`: `{count}`")
+    lines.extend(["", "### Source datasets", ""])
+    for source_dataset, count in sorted(summary["source_datasets"].items()):
+        lines.append(f"- `{source_dataset}`: `{count}`")
+    lines.extend(["", "### Article types", ""])
     for article_type, count in sorted(summary["article_types"].items()):
         lines.append(f"- `{article_type}`: `{count}`")
     lines.extend(["", "### Quality counts", ""])
@@ -206,6 +223,12 @@ def render_markdown(results: list[dict[str, Any]]) -> str:
             lines.append(f"  - errors: {'; '.join(r['errors'])}")
         if r.get("article_type"):
             lines.append(f"  - article_type: `{r['article_type']}`")
+        if r.get("layer"):
+            lines.append(f"  - layer: `{r['layer']}`")
+        if r.get("source_dataset"):
+            lines.append(f"  - source_dataset: `{r['source_dataset']}`")
+        if r.get("input_type"):
+            lines.append(f"  - input_type: `{r['input_type']}`")
         if "expected_claims" in r:
             lines.append(f"  - expected claims: `{r['expected_claims']}`")
             lines.append(f"  - expected verdicts: `{r['expected_verdicts']}`")
