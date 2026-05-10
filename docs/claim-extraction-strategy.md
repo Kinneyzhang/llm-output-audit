@@ -106,8 +106,9 @@ claim graph
 
 The live path currently uses:
 
-- GitHub API for source-owned repository metadata such as stars, forks, language, archive status, license, and freshness.
-- Tavily web search when configured, for official docs and current web evidence.
+- The v1 Source Router bridge for Tavily/DDG, GitHub, Wikipedia, arXiv, Semantic Scholar, PyPI, and npm evidence.
+- GitHub API for source-owned repository metadata such as stars, forks, open issues, language, archive status, license, created_at, latest release, and freshness.
+- Official docs / GitHub README retrieval for project capability and configuration claims.
 - Wikipedia fallback for broad public entities.
 - Local/private checklist records for `local` and `not_publicly_verifiable` claims.
 - LLM hybrid judging over retrieved snippets, using only supplied evidence.
@@ -119,3 +120,6 @@ Empirical live private smoke with `--claim-extractor hybrid --max-claims 20 --ev
 - GPT Researcher usage guide: `20` claims, `85` evidence records; mostly `supported`, remaining `not_enough_evidence`.
 - Emacs Lisp finetune plan: `17–20` claims depending on LLM extraction; public claims separated from `not_publicly_verifiable` planning/local claims.
 - Caddy architecture analysis: `20` claims; live GitHub/web evidence plus hybrid judge filled the ledger instead of producing citation-only floods.
+
+
+After bridging the v1 Source Router and parallelizing claim-level live evidence, private smoke runs improved materially: GPT Researcher moved from mostly `not_enough_evidence` to about `18/20` supported claims in one run, and Caddy moved to about `9/20` supported claims. Runtime is still slower than v1, but parallel live evidence brought representative runs down to roughly `83–85s` for 20 selected claims instead of more than `120–230s`.

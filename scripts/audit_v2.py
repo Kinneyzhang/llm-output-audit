@@ -20,8 +20,10 @@ import base64
 import json
 import os
 import re
+import sys
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -877,6 +879,157 @@ def tavily_evidence(claim: dict[str, Any], max_results: int = 3) -> list[dict[st
 
 
 
+
+
+OFFICIAL_DOC_URLS = {
+    "caddy": [
+        "https://caddyserver.com/docs/automatic-https",
+        "https://caddyserver.com/docs/caddyfile/directives/reverse_proxy",
+        "https://caddyserver.com/docs/caddyfile/directives/tls",
+        "https://caddyserver.com/docs/modules/http.reverse_proxy",
+    ],
+    "gpt researcher": [
+        "https://docs.gptr.dev/docs/gpt-researcher/getting-started",
+        "https://docs.gptr.dev/docs/gpt-researcher/gptr/config",
+        "https://docs.gptr.dev/docs/gpt-researcher/context/local-docs",
+        "https://docs.gptr.dev/docs/gpt-researcher/mcp/mcp-overview",
+    ],
+}
+
+
+def strip_html(text: str) -> str:
+    text = re.sub(r"<script[\s\S]*?</script>|<style[\s\S]*?</style>", " ", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"&nbsp;", " ", text)
+    text = re.sub(r"&amp;", "&", text)
+    text = re.sub(r"&lt;", "<", text)
+    text = re.sub(r"&gt;", ">", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+URL_TEXT_CACHE: dict[str, str] = {}
+
+
+def fetch_text_url(url: str, timeout: int = 8) -> str:
+    if url in URL_TEXT_CACHE:
+        return URL_TEXT_CACHE[url]
+    try:
+        import requests
+        resp = requests.get(url, headers={"User-Agent": "llm-output-audit-v2/0.1"}, timeout=timeout, verify=True)
+        if not resp.ok:
+            URL_TEXT_CACHE[url] = ""
+            return ""
+        URL_TEXT_CACHE[url] = strip_html(resp.text)
+        return URL_TEXT_CACHE[url]
+    except Exception:
+        URL_TEXT_CACHE[url] = ""
+        return ""
+
+
+def official_docs_evidence(claim: dict[str, Any]) -> list[dict[str, Any]]:
+    text = " ".join(str(claim.get(k, "")) for k in ("claim_text", "subject", "object")).lower()
+    urls: list[str] = []
+    for alias, candidates in OFFICIAL_DOC_URLS.items():
+        if alias in text:
+            urls.extend(candidates)
+    if not urls:
+        return []
+    records=[]
+    claim_id=claim["claim_id"]
+    # Keep live runs responsive; repeated URL fetches are cached.
+    for i, url in enumerate(urls[:2], start=1):
+        body = fetch_text_url(url)
+        if not body:
+            continue
+        quote = relevant_quote(body, claim.get("claim_text", ""), max_chars=1600)
+        records.append({
+            "evidence_id": f"docs-{claim_id}-{i}",
+            "claim_id": claim_id,
+            "source_type": "official_docs",
+            "authority": "official",
+            "subject_match": "medium",
+            "quote": quote,
+            "url": url,
+            "retrieved_at": now_iso(),
+            "supports": [],
+            "contradicts": [],
+            "missing": [claim_id],
+            "scores": {"retrieval_relevance": 0.7, "source_authority": 0.9, "evidence_coverage": 0.35},
+        })
+    return records
+
+def v1_gather_evidence_records(claim: dict[str, Any], max_sources: int = 4, source_workers: int = 4) -> list[dict[str, Any]]:
+    """Bridge the mature v1 Source Router into the v2 Evidence Ledger.
+
+    v1 already knows how to route claims to Tavily/DDG, GitHub, Wikipedia,
+    arXiv, Semantic Scholar, PyPI, and npm. v2 keeps the artifact contract and
+    evidence-ledger judge, but reuses those source adapters instead of rebuilding
+    them ad hoc.
+    """
+    try:
+        import importlib.util
+        scripts_dir = Path(__file__).resolve().parent
+        fact_path = scripts_dir / "fact_check.py"
+        spec = importlib.util.spec_from_file_location("loa_fact_check_v1", fact_path)
+        if spec is None or spec.loader is None:
+            return []
+        module = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault("loa_fact_check_v1", module)
+        spec.loader.exec_module(module)  # type: ignore[union-attr]
+        claim_text = str(claim.get("claim_text") or "")
+        claim_type = str(claim.get("claim_type") or "FEATURE")
+        routed, results = module.gather_evidence(
+            claim_text,
+            claim_type,
+            wiki_path=None,
+            use_llm_router=False,
+            use_wiki=False,
+            max_sources=max_sources,
+            source_workers=source_workers,
+        )
+    except Exception:
+        return []
+
+    records: list[dict[str, Any]] = []
+    claim_id = claim["claim_id"]
+    for i, item in enumerate(results[:8], start=1):
+        source = str(item.get("source") or "v1_source_router")
+        structured = item.get("structured_data") if isinstance(item.get("structured_data"), dict) else None
+        snippet_parts = []
+        if item.get("title"):
+            snippet_parts.append(str(item.get("title")))
+        if item.get("snippet"):
+            snippet_parts.append(str(item.get("snippet")))
+        if structured:
+            snippet_parts.append("structured_data=" + json.dumps(structured, ensure_ascii=False, sort_keys=True))
+        quote = " | ".join(snippet_parts)[:1500] or "v1 source router returned an evidence result."
+        authority = "canonical" if item.get("structured") or source in {"github", "pypi", "npm", "arxiv", "semantic_scholar"} else ("reference" if source == "wikipedia" else "secondary")
+        score = float(item.get("evidence_score") or 0.5)
+        records.append({
+            "evidence_id": f"v1-{claim_id}-{i}",
+            "claim_id": claim_id,
+            "source_type": f"v1_{source}",
+            "authority": authority,
+            "subject_match": "unknown",
+            "quote": quote,
+            "url": item.get("url"),
+            "retrieved_at": now_iso(),
+            "supports": [],
+            "contradicts": [],
+            "missing": [claim_id],
+            "scores": {
+                "retrieval_relevance": max(0.0, min(1.0, score)),
+                "source_authority": 0.9 if authority == "canonical" else (0.65 if authority == "reference" else 0.5),
+                "evidence_coverage": 0.35,
+            },
+            "metadata": {
+                "v1_routed_sources": routed,
+                "v1_source": source,
+                "structured": bool(item.get("structured")),
+            },
+        })
+    return records
+
 def duckduckgo_evidence(claim: dict[str, Any], max_results: int = 3) -> list[dict[str, Any]]:
     text = claim.get("claim_text", "")
     query = urllib.parse.urlencode({"q": text, "format": "json", "no_redirect": "1", "no_html": "1"})
@@ -987,9 +1140,12 @@ def live_evidence_for_claim(claim: dict[str, Any], plan: dict[str, Any] | None =
     if "github_api" in preferred or "source_repo" in preferred or "github" in claim.get("claim_text", "").lower() or claim_mentions_stars(claim.get("claim_text", "")):
         records.extend(github_repo_evidence(claim))
     if not any(r.get("supports") or r.get("contradicts") for r in records):
+        records.extend(official_docs_evidence(claim))
+    if not any(r.get("supports") or r.get("contradicts") for r in records):
+        records.extend(v1_gather_evidence_records(claim, max_sources=4, source_workers=4))
+    if not any(r.get("supports") or r.get("contradicts") for r in records):
         records.extend(github_readme_evidence(claim))
     if not any(r.get("supports") or r.get("contradicts") for r in records):
-        before = len(records)
         records.extend(tavily_evidence(claim, max_results=3))
     if not records:
         records.extend(duckduckgo_evidence(claim, max_results=3))
@@ -1003,16 +1159,12 @@ def live_evidence_for_claim(claim: dict[str, Any], plan: dict[str, Any] | None =
         if judged:
             support_idxs = set(judged.get("supporting_indices", []))
             contradict_idxs = set(judged.get("contradicting_indices", []))
-            for idx, rec in enumerate(records, start=1):
-                rec["missing"] = []
-                if idx in support_idxs or judged["truth_verdict"] in {"supported", "partially_supported"} and not support_idxs and idx == 1:
-                    rec["supports"] = [claim_id]
-                    rec["scores"]["evidence_coverage"] = 0.8
-                elif idx in contradict_idxs or judged["truth_verdict"] == "refuted" and not contradict_idxs and idx == 1:
-                    rec["contradicts"] = [claim_id]
-                    rec["scores"]["evidence_coverage"] = 0.8
-                else:
-                    rec["missing"] = [claim_id]
+            # Keep retrieved source records immutable as observations. The LLM
+            # judge is a derived evidence record; it may support a claim, but its
+            # refutations are conservative and do not turn secondary/irrelevant
+            # snippets into high-authority contradictions.
+            for rec in records:
+                rec.setdefault("missing", [claim_id])
             records.append({
                 "evidence_id": f"judge-{claim_id}", "claim_id": claim_id, "source_type": "llm_hybrid_judge",
                 "authority": "derived", "subject_match": "derived", "quote": judged["reason"], "retrieved_at": now_iso(),
@@ -1024,11 +1176,21 @@ def live_evidence_for_claim(claim: dict[str, Any], plan: dict[str, Any] | None =
     return records
 
 
-def gather_live_evidence(claims: list[dict[str, Any]], plans: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def gather_live_evidence(claims: list[dict[str, Any]], plans: list[dict[str, Any]], workers: int = 6) -> list[dict[str, Any]]:
     plan_by_id = {p.get("claim_id"): p for p in plans}
     records: list[dict[str, Any]] = []
-    for claim in claims:
-        records.extend(live_evidence_for_claim(claim, plan_by_id.get(claim.get("claim_id"))))
+    if len(claims) <= 1 or workers <= 1:
+        for claim in claims:
+            records.extend(live_evidence_for_claim(claim, plan_by_id.get(claim.get("claim_id"))))
+        return records
+    with ThreadPoolExecutor(max_workers=min(workers, len(claims))) as ex:
+        futures = [ex.submit(live_evidence_for_claim, claim, plan_by_id.get(claim.get("claim_id"))) for claim in claims]
+        for fut in as_completed(futures):
+            try:
+                records.extend(fut.result())
+            except Exception:
+                continue
+    records.sort(key=lambda item: str(item.get("evidence_id", "")))
     return records
 
 def plan_evidence(claims: list[dict[str, Any]]) -> list[dict[str, Any]]:

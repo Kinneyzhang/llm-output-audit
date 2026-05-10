@@ -150,7 +150,7 @@ Evidence modes:
 - `--evidence-mode live` — force live evidence gathering when no source pack is used.
 - `--evidence-mode missing` — offline/CI-safe mode that writes review records without network evidence.
 
-Current live adapters include GitHub API metadata, Tavily web search when `TAVILY_API_KEY` is configured, Wikipedia fallback, local/private review checklists, and an LLM hybrid judge over retrieved snippets. Refutations are conservative: secondary web snippets alone do not create automatic `refuted` verdicts unless high-authority evidence supports the contradiction.
+Current live adapters include the mature v1 Source Router bridge (Tavily/DDG, GitHub, Wikipedia, arXiv, Semantic Scholar, PyPI, npm), GitHub API metadata, official docs/README retrieval, local/private review checklists, and an LLM hybrid judge over retrieved snippets. Refutations are conservative: secondary web snippets alone do not create automatic `refuted` verdicts unless high-authority evidence supports the contradiction.
 
 Native mode can consume a deterministic source pack. If `ARTICLE_DIR/source-pack.json` exists, it is loaded automatically; otherwise pass it explicitly:
 
