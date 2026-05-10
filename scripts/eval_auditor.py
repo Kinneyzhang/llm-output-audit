@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,19 @@ def load_json(path: Path) -> Any:
         return json.load(f)
 
 
+def parse_scorecard(review_text: str) -> dict[str, str]:
+    """Extract simple `key: value` lines from a human-review Scorecard section."""
+    match = re.search(r"^## Scorecard\s*(.*?)(?=^## |\Z)", review_text, flags=re.M | re.S)
+    if not match:
+        return {}
+    scorecard: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        item = re.match(r"^-\s*([A-Za-z0-9_-]+):\s*(.+?)\s*$", line.strip())
+        if item:
+            scorecard[item.group(1)] = item.group(2)
+    return scorecard
+
+
 def validate_case(case_dir: Path) -> dict[str, Any]:
     missing = [name for name in REQUIRED_CASE_FILES if not (case_dir / name).exists()]
     result: dict[str, Any] = {
@@ -42,6 +56,7 @@ def validate_case(case_dir: Path) -> dict[str, Any]:
     metadata = load_json(case_dir / "metadata.json")
     expected_claims = load_json(case_dir / "expected-claims.json")
     expected_verdicts = load_json(case_dir / "expected-verdicts.json")
+    scorecard = parse_scorecard((case_dir / "human-review.md").read_text(encoding="utf-8"))
 
     result.update(
         {
@@ -50,6 +65,7 @@ def validate_case(case_dir: Path) -> dict[str, Any]:
             "expected_claims": len(expected_claims),
             "expected_verdicts": len(expected_verdicts),
             "visibility": metadata.get("visibility"),
+            "scorecard": scorecard,
         }
     )
     if len(expected_claims) != len(expected_verdicts):
@@ -83,6 +99,10 @@ def render_markdown(results: list[dict[str, Any]]) -> str:
         if "expected_claims" in r:
             lines.append(f"  - expected claims: `{r['expected_claims']}`")
             lines.append(f"  - expected verdicts: `{r['expected_verdicts']}`")
+        if r.get("scorecard"):
+            lines.append("  - scorecard:")
+            for key, value in sorted(r["scorecard"].items()):
+                lines.append(f"    - `{key}`: {value}")
     lines.extend(
         [
             "",

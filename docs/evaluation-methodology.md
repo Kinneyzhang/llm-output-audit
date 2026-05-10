@@ -109,6 +109,7 @@ Full LLM-backed evaluation can run locally or in a private environment.
 - version/commit under test
 - benchmark case list
 - metric summary
+- parsed human-review scorecards when available
 - failures by layer
 - worst cases
 - regression vs previous run

@@ -10,6 +10,15 @@ Auditor version/commit:
 - Primary subjects:
 - Expected risk areas:
 
+## Scorecard
+
+- claim_extraction_quality: unknown
+- evidence_routing_quality: unknown
+- verdict_quality: unknown
+- suggestion_usefulness: unknown
+- primary_failure_mode: unknown
+- product_decision: unknown
+
 ## Claim review
 
 For each sampled claim, answer:
