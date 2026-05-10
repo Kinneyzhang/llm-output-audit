@@ -1,7 +1,7 @@
 ---
 name: llm-output-audit
 description: Use when auditing long-form LLM-generated articles, technical reports, or research notes for factual accuracy, hallucination risk, internal consistency, source quality, and actionable edit suggestions.
-version: 1.9.1
+version: 1.10.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -452,6 +452,35 @@ The script:
 14. For agent-generated durable outputs, apply safe corrections and wording changes before final delivery; for user-supplied existing files, report first and only modify when explicitly asked
 
 See `scripts/fact_check.py` for full implementation.
+
+---
+
+## Multi-Agent Installation
+
+The audit engine is a normal CLI, so other agents do not need a separate copy of the implementation. Use `scripts/install_agent_skill.py` to install lightweight adapters for each agent while keeping this repository as the canonical source.
+
+Preview first:
+
+```bash
+python3 scripts/install_agent_skill.py --agent hermes --scope user --dry-run
+python3 scripts/install_agent_skill.py --agent claude-code --scope user --dry-run
+python3 scripts/install_agent_skill.py --agent codex --scope project --dry-run
+```
+
+Supported adapters:
+
+- `hermes` — symlink this repository into the Hermes skill directory.
+- `claude-code` — write a Claude skill markdown file and a marker-managed `CLAUDE.md` block.
+- `codex` — write a marker-managed `AGENTS.md` block.
+- `opencode`, `gemini`, `generic` — also use marker-managed `AGENTS.md` blocks.
+
+Installer safety rules:
+
+- Always prefer `--dry-run` before writing.
+- `AGENTS.md` and `CLAUDE.md` updates are contained between `<!-- llm-output-audit:start -->` and `<!-- llm-output-audit:end -->` markers, so user content outside the block is preserved.
+- Hermes defaults to `--mode symlink`; use `--mode copy` only when symlinks are not suitable.
+- Use `--target PATH` for non-standard agent directories.
+- Use `--force` only when intentionally replacing a non-marker-managed target.
 
 ---
 

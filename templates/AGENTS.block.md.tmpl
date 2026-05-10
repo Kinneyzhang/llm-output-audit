@@ -1,0 +1,23 @@
+## llm-output-audit
+
+Use this repository's LLM Output Audit tool when asked to audit, verify, fact-check, review hallucinations, or assess long-form LLM output.
+
+Canonical CLI:
+
+```bash
+$default_command
+```
+
+Rules for agents:
+
+1. Prefer `draft` mode for durable notes, research reports, usage guides, and internal docs.
+2. Use `full` mode for public publishing, high-stakes reports, or explicit deep-audit requests.
+3. Always write `--trace-log` for non-trivial audits so the audit process can be reviewed later.
+4. Do not modify user-owned source files unless explicitly asked to apply fixes.
+5. Treat source-owned structured facts such as GitHub stars, package versions, and release metadata as API-first checks, not generic web-search facts.
+6. If LLM Wiki is available, add `--use-wiki --wiki /path/to/wiki`; otherwise run without it.
+
+Repository path: `$repo_path`
+Script path: `$script_path`
+Installed for: `$agent` / `$scope`
+Version: `$version`

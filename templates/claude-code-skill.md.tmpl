@@ -1,0 +1,40 @@
+# llm-output-audit
+
+Use this skill when the user asks to audit, verify, fact-check, check hallucinations, review factual accuracy, or assess source quality for long-form LLM output.
+
+## What to run
+
+```bash
+$default_command
+```
+
+For public or high-stakes writing, use:
+
+```bash
+python3 $script_path \
+  --file ARTICLE.md \
+  --output ARTICLE-audit.md \
+  --mode full \
+  --workers 6 \
+  --source-workers 4 \
+  --trace-log ARTICLE-audit-trace.jsonl
+```
+
+If a local LLM Wiki is available, add:
+
+```bash
+--use-wiki --wiki /path/to/llm-wiki
+```
+
+## Operating rules
+
+1. Existing user files are report-first: do not edit the original unless the user explicitly says to apply fixes.
+2. Agent-generated durable drafts should be audited before final delivery.
+3. Always inspect the audit report and, for process debugging, the trace log.
+4. Treat `❌ WRONG` findings as requiring evidence review before applying edits.
+5. For GitHub stars, releases, package versions, and similar source-owned facts, prefer structured API evidence.
+6. Keep audit reports next to the source file when practical.
+
+Canonical repository: `$repo_path`
+Canonical script: `$script_path`
+Version: `$version`

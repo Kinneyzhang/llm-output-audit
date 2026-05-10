@@ -68,6 +68,7 @@ Generate an audit report with edit suggestions
 - **Conditional adversarial pass** — reduces false positives for claims initially marked wrong.
 - **Actionable edits** — generates correction, hedging, citation, or deletion suggestions instead of only saying “right/wrong”.
 - **Optional local knowledge base** — LLM Wiki can be used when available, but is not required.
+- **Multi-agent packaging** — install lightweight adapters for Hermes, Claude Code, Codex, OpenCode, Gemini, or generic agents without duplicating the core CLI.
 
 ## Audit modes
 
@@ -161,10 +162,43 @@ cd llm-output-audit
 Install Python dependencies:
 
 ```bash
-python3 -m pip install requests
+python3 -m pip install -r requirements.txt
 ```
 
 The script is intentionally small: it uses the Python standard library for orchestration and `requests` for HTTP calls.
+
+### Install into an agent
+
+The canonical implementation stays in this repository. `scripts/install_agent_skill.py` installs small adapter files so different agents can discover and run the same CLI.
+
+Preview what would be installed:
+
+```bash
+python3 scripts/install_agent_skill.py --agent hermes --scope user --dry-run
+python3 scripts/install_agent_skill.py --agent claude-code --scope user --dry-run
+python3 scripts/install_agent_skill.py --agent codex --scope project --dry-run
+```
+
+Install examples:
+
+```bash
+# Hermes: symlink the repository into the Hermes skill directory
+python3 scripts/install_agent_skill.py --agent hermes --scope user
+
+# Claude Code: create a Claude skill file and a marker-managed CLAUDE.md block
+python3 scripts/install_agent_skill.py --agent claude-code --scope user
+
+# Codex / generic coding agents: append a marker-managed AGENTS.md block
+python3 scripts/install_agent_skill.py --agent codex --scope project
+```
+
+Supported adapters: `hermes`, `claude-code`, `codex`, `opencode`, `gemini`, and `generic`.
+
+Safety behavior:
+
+- Existing `AGENTS.md` and `CLAUDE.md` files are updated only inside a marker block: `<!-- llm-output-audit:start --> ... <!-- llm-output-audit:end -->`.
+- Hermes defaults to a symlink so there is one physical source of truth.
+- Use `--target PATH` for custom locations, `--mode copy` when symlinks are not suitable, and `--force` only when you intentionally want to replace a non-marker-managed target.
 
 ## Configuration
 

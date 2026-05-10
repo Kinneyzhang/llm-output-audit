@@ -1,0 +1,16 @@
+## llm-output-audit
+
+When asked to audit LLM output, hallucinations, long-form research reports, technical comparisons, README/blog drafts, or durable notes, use the installed `llm-output-audit` skill or run the canonical CLI directly:
+
+```bash
+$default_command
+```
+
+Important behavior:
+
+- For existing user-owned files, report first; do not rewrite unless explicitly asked.
+- For agent-generated durable drafts, audit before finalizing and apply safe corrections.
+- Include `--trace-log` for non-trivial audits so another agent can review the audit process.
+- Prefer structured APIs for source-owned facts such as GitHub stars and package metadata.
+
+Canonical repo: `$repo_path`
