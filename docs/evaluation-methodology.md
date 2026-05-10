@@ -110,6 +110,9 @@ Full LLM-backed evaluation can run locally or in a private environment.
 - benchmark case list
 - metric summary
 - parsed human-review scorecards when available
+- aggregate scorecard counts
+- risky cases by quality dimension
+- product decisions grouped across cases
 - failures by layer
 - worst cases
 - regression vs previous run

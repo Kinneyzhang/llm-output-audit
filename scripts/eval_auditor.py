@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,26 @@ REQUIRED_CASE_FILES = [
     "human-review.md",
     "notes.md",
 ]
+
+QUALITY_ORDER = {
+    "unknown": 0,
+    "poor": 1,
+    "poor_to_medium": 2,
+    "low": 2,
+    "low_to_medium": 2,
+    "medium": 3,
+    "medium_to_high": 4,
+    "high": 5,
+}
+
+QUALITY_FIELDS = [
+    "claim_extraction_quality",
+    "evidence_routing_quality",
+    "verdict_quality",
+    "suggestion_usefulness",
+]
+
+RISKY_QUALITY_VALUES = {"poor", "poor_to_medium", "low", "low_to_medium"}
 
 
 def load_json(path: Path) -> Any:
@@ -40,6 +61,66 @@ def parse_scorecard(review_text: str) -> dict[str, str]:
         if item:
             scorecard[item.group(1)] = item.group(2)
     return scorecard
+
+
+def quality_score(value: str | None) -> int:
+    return QUALITY_ORDER.get((value or "unknown").strip(), 0)
+
+
+def risky_dimensions(scorecard: dict[str, str]) -> list[str]:
+    risks: list[str] = []
+    for field in QUALITY_FIELDS:
+        value = scorecard.get(field, "unknown")
+        if value in RISKY_QUALITY_VALUES:
+            risks.append(field)
+    return risks
+
+
+def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate scorecards into coarse product-risk signals."""
+    article_types: Counter[str] = Counter()
+    quality_counts: dict[str, Counter[str]] = {field: Counter() for field in QUALITY_FIELDS}
+    risky_cases: list[dict[str, Any]] = []
+    product_decisions: Counter[str] = Counter()
+    by_article_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
+
+    for result in results:
+        article_type = result.get("article_type") or "unknown"
+        article_types[article_type] += 1
+        by_article_type[article_type].append(result)
+        scorecard = result.get("scorecard") or {}
+        for field in QUALITY_FIELDS:
+            quality_counts[field][scorecard.get(field, "unknown")] += 1
+        risks = risky_dimensions(scorecard)
+        if risks:
+            risky_cases.append(
+                {
+                    "case_id": result["case_id"],
+                    "article_type": article_type,
+                    "risky_dimensions": risks,
+                    "primary_failure_mode": scorecard.get("primary_failure_mode", "unknown"),
+                    "product_decision": scorecard.get("product_decision", "unknown"),
+                }
+            )
+        if scorecard.get("product_decision"):
+            product_decisions[scorecard["product_decision"]] += 1
+
+    type_quality: dict[str, dict[str, float]] = {}
+    for article_type, items in by_article_type.items():
+        type_quality[article_type] = {}
+        for field in QUALITY_FIELDS:
+            values = [quality_score((item.get("scorecard") or {}).get(field)) for item in items]
+            type_quality[article_type][field] = round(sum(values) / len(values), 2) if values else 0
+
+    return {
+        "case_count": len(results),
+        "valid_case_count": sum(1 for r in results if r.get("ok")),
+        "article_types": dict(article_types),
+        "quality_counts": {field: dict(counts) for field, counts in quality_counts.items()},
+        "type_quality": type_quality,
+        "risky_cases": risky_cases,
+        "product_decisions": dict(product_decisions),
+    }
 
 
 def validate_case(case_dir: Path) -> dict[str, Any]:
@@ -77,16 +158,45 @@ def validate_case(case_dir: Path) -> dict[str, Any]:
 
 
 def render_markdown(results: list[dict[str, Any]]) -> str:
-    ok_count = sum(1 for r in results if r.get("ok"))
+    summary = summarize_results(results)
+    ok_count = summary["valid_case_count"]
     lines = [
         "# LLM Output Audit Benchmark Evaluation",
         "",
         f"Cases: `{len(results)}`",
         f"Valid cases: `{ok_count}`",
         "",
-        "## Cases",
+        "## Aggregate Scorecard",
+        "",
+        "### Article types",
         "",
     ]
+    for article_type, count in sorted(summary["article_types"].items()):
+        lines.append(f"- `{article_type}`: `{count}`")
+    lines.extend(["", "### Quality counts", ""])
+    for field, counts in summary["quality_counts"].items():
+        rendered = ", ".join(f"`{key}`={value}" for key, value in sorted(counts.items()))
+        lines.append(f"- `{field}`: {rendered or '`none`'}")
+    lines.extend(["", "### Average quality by article type", ""])
+    for article_type, fields in sorted(summary["type_quality"].items()):
+        rendered = ", ".join(f"`{key}`={value}" for key, value in sorted(fields.items()))
+        lines.append(f"- `{article_type}`: {rendered}")
+    lines.extend(["", "### Risky cases", ""])
+    if summary["risky_cases"]:
+        for item in summary["risky_cases"]:
+            dims = ", ".join(f"`{dim}`" for dim in item["risky_dimensions"])
+            lines.append(f"- `{item['case_id']}` ({item['article_type']}): {dims}")
+            lines.append(f"  - failure: {item['primary_failure_mode']}")
+            lines.append(f"  - decision: {item['product_decision']}")
+    else:
+        lines.append("- No risky dimensions found in parsed scorecards.")
+    lines.extend(["", "### Product decisions", ""])
+    if summary["product_decisions"]:
+        for decision, count in sorted(summary["product_decisions"].items()):
+            lines.append(f"- `{count}` × {decision}")
+    else:
+        lines.append("- No product decisions recorded.")
+    lines.extend(["", "## Cases", ""])
     for r in results:
         status = "ok" if r.get("ok") else "failed"
         lines.append(f"- `{r['case_id']}` — `{status}`")
@@ -133,7 +243,8 @@ def main() -> int:
     else:
         print(report)
     if args.json_output:
-        Path(args.json_output).write_text(json.dumps(results, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        payload = {"summary": summarize_results(results), "cases": results}
+        Path(args.json_output).write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return 0 if all(r.get("ok") for r in results) else 1
 
 
