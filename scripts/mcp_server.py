@@ -242,6 +242,10 @@ def run_audit_v2_file(args: dict[str, Any], file_path: Path, output_dir: Path) -
         cmd.extend(["--evidence-mode", str(args["evidence_mode"])])
     if args.get("source_pack"):
         cmd.extend(["--source-pack", str(Path(str(args["source_pack"])).expanduser().resolve())])
+    if args.get("write_revision"):
+        cmd.append("--write-revision")
+    if args.get("post_audit_revision"):
+        cmd.extend(["--post-audit-revision", str(args["post_audit_revision"])])
     proc = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout)
     manifest_path = output_dir / "actual-manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
@@ -288,6 +292,7 @@ def tool_summarize_artifacts(args: dict[str, Any]) -> dict[str, Any]:
         "verdicts": artifact_dir / "actual-verdicts.json",
         "review_queue": artifact_dir / "actual-review-queue.json",
         "suggestions": artifact_dir / "actual-suggestions.json",
+        "patches": artifact_dir / "actual-patches.json",
         "manifest": artifact_dir / "actual-manifest.json",
     }
     counts = {}
@@ -307,7 +312,13 @@ def tool_summarize_artifacts(args: dict[str, Any]) -> dict[str, Any]:
     queue_counts = {}
     if files["review_queue"].exists():
         queue_counts = dict(Counter(item.get("queue", "unknown") for item in json.loads(files["review_queue"].read_text(encoding="utf-8"))))
-    return text_result({"ok": True, "artifact_dir": str(artifact_dir), "counts": counts, "verdict_counts": verdict_counts, "queue_counts": queue_counts})
+    patch_counts = {}
+    applied_patches = None
+    if files.get("patches") and files["patches"].exists():
+        patches = json.loads(files["patches"].read_text(encoding="utf-8"))
+        patch_counts = dict(Counter(item.get("operation", "unknown") for item in patches))
+        applied_patches = sum(1 for item in patches if item.get("applied"))
+    return text_result({"ok": True, "artifact_dir": str(artifact_dir), "counts": counts, "verdict_counts": verdict_counts, "queue_counts": queue_counts, "patch_counts": patch_counts, "applied_patches": applied_patches})
 
 
 def tools_list() -> list[dict[str, Any]]:
@@ -356,6 +367,8 @@ def tools_list() -> list[dict[str, Any]]:
                     "evidence_mode": {"type": "string", "enum": ["auto", "live", "missing"], "default": "auto"},
                     "max_claims": {"type": "integer", "minimum": 1, "maximum": 200, "default": 80},
                     "source_pack": {"type": "string"},
+                    "write_revision": {"type": "boolean", "default": False},
+                    "post_audit_revision": {"type": "string", "enum": ["none", "missing", "auto"], "default": "none"},
                     "timeout": {"type": "integer", "minimum": 10, "maximum": 7200, "default": 600},
                 },
                 "required": ["file"],

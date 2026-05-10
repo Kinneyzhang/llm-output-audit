@@ -196,3 +196,8 @@ Keep v1 tools, then add staged tools:
 - v2 starts as `scripts/audit_v2.py` and artifact schemas.
 - Do not replace `scripts/fact_check.py` until benchmark metrics show v2 improvement.
 - Markdown reports remain backward-compatible for humans.
+
+
+## Patch Engine
+
+v2 now separates audit suggestions from actual article mutation. `--write-revision` writes `actual-patches.json`, applies only safe exact single-occurrence patches into `revised.md`, and records the result in `revision-report.md`. `--post-audit-revision missing|auto` can run a second audit over the revised copy into `post-audit/`. The engine is conservative by design: citation/local-verification markers may be auto-applied to prose spans, while refuted/conflicting rewrites and code/config/command-like spans require human review.

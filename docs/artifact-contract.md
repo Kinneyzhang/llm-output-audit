@@ -12,6 +12,10 @@ actual-evidence.jsonl
 actual-verdicts.json
 actual-review-queue.json
 actual-suggestions.json
+actual-patches.json          # when --write-revision is enabled
+revised.md                    # when --write-revision is enabled
+revision-report.md            # when --write-revision is enabled
+post-audit/                   # optional, when --post-audit-revision is enabled
 actual-report.md
 actual-manifest.json
 ```
@@ -106,6 +110,24 @@ Common severities:
 - `none`
 
 Suggestions may be conservative. `safe_to_apply: true` should only be used for low-risk citation/hedging edits, not factual rewrites that require human judgment.
+
+### `actual-patches.json`, `revised.md`, and `revision-report.md`
+
+When `--write-revision` is enabled, v2 becomes an audit-and-revise pipeline:
+
+- `actual-patches.json` records exact old → new replacements, operation type, safety status, application status, and evidence IDs.
+- `revised.md` is a revised copy of the article with only `safe_to_apply` exact single-occurrence patches applied.
+- `revision-report.md` summarizes proposed patches, applied patches, and human-review-only edits.
+
+Automatic application is intentionally conservative. It refuses short spans, code/config/command-looking spans, ambiguous multi-occurrence text, and figurative/evaluative prose. Refuted or conflicting factual rewrites are generated as patch proposals but require human review unless a later deterministic corrector marks them safe.
+
+Optional post-audit:
+
+```bash
+--post-audit-revision missing|auto
+```
+
+This runs a second v2 audit over `revised.md` into `post-audit/`, useful for checking whether safe edits reduced the review queue without silently mutating the original file.
 
 ### `actual-manifest.json`
 

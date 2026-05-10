@@ -313,6 +313,227 @@ def synthesize_suggestions(claims: list[dict[str, Any]], verdicts: list[dict[str
     return suggestions
 
 
+
+
+def citation_marker_for_text(text: str) -> str:
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return "（需补来源）"
+    return " [citation needed]"
+
+
+def local_verify_marker_for_text(text: str) -> str:
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return "（需本地确认）"
+    return " [local verification needed]"
+
+
+def hedge_text(text: str) -> str:
+    if re.search(r"[\u4e00-\u9fff]", text):
+        if text.startswith("可能") or "据" in text[:8]:
+            return text
+        return "据当前证据，" + text
+    if re.match(r"(?i)^(may|might|appears to|according to)", text.strip()):
+        return text
+    return "According to currently available evidence, " + text[:1].lower() + text[1:]
+
+
+def evidence_by_id(evidence_records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {str(e.get("evidence_id")): e for e in evidence_records}
+
+
+def build_patch_reason(verdict: dict[str, Any], evidence_records: list[dict[str, Any]], max_chars: int = 700) -> str:
+    e_by_id = evidence_by_id(evidence_records)
+    snippets=[]
+    for eid in verdict.get("evidence_ids") or []:
+        ev=e_by_id.get(str(eid))
+        if not ev:
+            continue
+        url=ev.get("url") or ""
+        quote=str(ev.get("quote") or "").strip()
+        snippets.append((f"{ev.get('source_type','evidence')}: {url} {quote}").strip())
+    base = verdict.get("reason") or "Generated from v2 verdict."
+    joined = "\n".join(snippets[:3]) or base
+    return joined[:max_chars]
+
+
+def llm_rewrite_patch(old_text: str, verdict: dict[str, Any], evidence_records: list[dict[str, Any]]) -> str | None:
+    if not old_text.strip() or len(old_text) > 1200:
+        return None
+    payload = {
+        "old_text": old_text,
+        "truth_verdict": verdict.get("truth_verdict"),
+        "audit_action": verdict.get("audit_action"),
+        "reason": verdict.get("reason"),
+        "evidence": build_patch_reason(verdict, evidence_records, max_chars=1800),
+    }
+    result = call_llm_json([
+        {"role": "system", "content": "You are a conservative technical editor. Rewrite the original sentence/paragraph only when the evidence supports a correction. Preserve the original language and tone. Return JSON: {\"replacement\": \"...\", \"confidence\": 0.0-1.0, \"why\": \"...\"}. If the evidence is insufficient, add a short citation-needed or verification-needed marker instead of inventing facts."},
+        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+    ], temperature=0.1, timeout=90)
+    if not isinstance(result, dict):
+        return None
+    replacement = str(result.get("replacement") or "").strip()
+    confidence = float(result.get("confidence") or 0.0)
+    if replacement and replacement != old_text and confidence >= 0.55:
+        return replacement
+    return None
+
+
+def select_patch_old_text(article_text: str, claim: dict[str, Any]) -> str:
+    span = claim.get("source_span") if isinstance(claim.get("source_span"), dict) else {}
+    candidates = [str(span.get("quote") or "").strip(), str(claim.get("claim_text") or "").strip()]
+    for cand in candidates:
+        if cand and cand in article_text:
+            return cand
+    # Try line-level fuzzy match from the source quote; avoid risky rewrites if not found.
+    quote = candidates[0]
+    if quote:
+        for line in article_text.splitlines():
+            stripped = line.strip()
+            if stripped and (quote in stripped or stripped in quote) and len(stripped) >= 12:
+                return stripped
+    return ""
+
+
+
+def patch_text_is_safe(old_text: str) -> tuple[bool, str]:
+    stripped = old_text.strip()
+    if len(stripped) < 20:
+        return False, "source span too short for safe automatic patch"
+    if CODE_LIKE_RE.search(stripped) or re.match(r"^[A-Za-z_]+\s+[A-Za-z0-9_./:-]+$", stripped) or re.match(r"^[A-Z][A-Z0-9_]+\s*=", stripped) or re.search(r"\b(sudo|journalctl|reload|cloudflare|API_TOKEN|你的_API_TOKEN|policy\s+round_robin|dns\s+cloudflare)\b", stripped, flags=re.I):
+        return False, "source span looks like code/config/command"
+    if stripped.startswith(("```", "`")) or stripped.endswith("`"):
+        return False, "source span is inline/block code"
+    if re.search(r"^(请|执行|运行|输入|cd |git |python |npm |pip |curl |docker |systemctl |sudo |journalctl )", stripped, flags=re.I):
+        return False, "source span looks like an instruction/command, not a prose claim"
+    if any(word in stripped for word in ["伟大", "王者", "极致", "强大的生命力", "不可替代", "疯狂", "一证保全家"]):
+        return False, "source span is evaluative/figurative; needs human editing"
+    return True, "safe prose span"
+
+def synthesize_patches(article_text: str, claims: list[dict[str, Any]], verdicts: list[dict[str, Any]], evidence_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    claims_by_id = {c["claim_id"]: c for c in claims}
+    patches=[]
+    for verdict in verdicts:
+        truth = verdict.get("truth_verdict")
+        if truth in {"supported", "not_a_factual_claim"}:
+            continue
+        claim = claims_by_id.get(verdict["claim_id"], {})
+        old_text = select_patch_old_text(article_text, claim)
+        if not old_text:
+            patches.append({
+                "patch_id": f"p-{verdict['claim_id']}",
+                "claim_id": verdict["claim_id"],
+                "operation": "manual_review",
+                "old_text": claim.get("claim_text", ""),
+                "new_text": "",
+                "safe_to_apply": False,
+                "requires_human": True,
+                "reason": "Could not locate the original source span in the article; patch not applied.",
+                "evidence_ids": verdict.get("evidence_ids") or [],
+            })
+            continue
+        span_safe, span_reason = patch_text_is_safe(old_text)
+        if truth == "not_enough_evidence":
+            marker = citation_marker_for_text(old_text)
+            new_text = old_text if marker in old_text else old_text + marker
+            operation = "add_citation_needed"
+            safe = span_safe
+            requires_human = not span_safe
+        elif truth == "not_publicly_verifiable":
+            marker = local_verify_marker_for_text(old_text)
+            new_text = old_text if marker in old_text else old_text + marker
+            operation = "add_local_verification_marker"
+            safe = span_safe
+            requires_human = not span_safe
+        elif truth in {"partially_supported", "conflicting_evidence"}:
+            new_text = llm_rewrite_patch(old_text, verdict, evidence_records) or hedge_text(old_text)
+            operation = "hedge_or_qualify"
+            safe = False
+            requires_human = True
+        elif truth == "refuted":
+            new_text = llm_rewrite_patch(old_text, verdict, evidence_records) or ("[needs correction] " + old_text)
+            operation = "rewrite_refuted"
+            safe = False
+            requires_human = True
+        else:
+            new_text = old_text
+            operation = "manual_review"
+            safe = False
+            requires_human = True
+        patches.append({
+            "patch_id": f"p-{verdict['claim_id']}",
+            "claim_id": verdict["claim_id"],
+            "operation": operation,
+            "old_text": old_text,
+            "new_text": new_text,
+            "safe_to_apply": safe,
+            "requires_human": requires_human,
+            "reason": build_patch_reason(verdict, evidence_records),
+            "safety_reason": locals().get("span_reason", "manual or LLM rewrite patch"),
+            "evidence_ids": verdict.get("evidence_ids") or [],
+        })
+    return patches
+
+
+def apply_safe_patches(article_text: str, patches: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+    revised = article_text
+    applied=[]
+    for patch in patches:
+        if not patch.get("safe_to_apply"):
+            patch["applied"] = False
+            patch["apply_reason"] = "not marked safe_to_apply"
+            continue
+        old = str(patch.get("old_text") or "")
+        new = str(patch.get("new_text") or "")
+        if not old or old == new:
+            patch["applied"] = False
+            patch["apply_reason"] = "empty or no-op patch"
+            continue
+        count = revised.count(old)
+        if count != 1:
+            patch["applied"] = False
+            patch["apply_reason"] = f"old_text occurrence count is {count}; refusing ambiguous patch"
+            continue
+        revised = revised.replace(old, new, 1)
+        patch["applied"] = True
+        patch["apply_reason"] = "applied exact single occurrence replacement"
+        applied.append(patch)
+    return revised, patches
+
+
+def render_revision_report(patches: list[dict[str, Any]]) -> str:
+    counts: dict[str, int] = {}
+    applied = 0
+    for patch in patches:
+        counts[patch.get("operation", "unknown")] = counts.get(patch.get("operation", "unknown"), 0) + 1
+        if patch.get("applied"):
+            applied += 1
+    lines = ["# LLM Output Audit v2 Revision Report", "", f"Generated: `{now_iso()}`", "", "## Summary", ""]
+    lines.append(f"- patches proposed: `{len(patches)}`")
+    lines.append(f"- safe patches applied: `{applied}`")
+    for key, value in sorted(counts.items()):
+        lines.append(f"- `{key}`: `{value}`")
+    lines.extend(["", "## Applied patches", ""])
+    any_applied=False
+    for patch in patches:
+        if patch.get("applied"):
+            any_applied=True
+            lines.append(f"- `{patch['patch_id']}` / `{patch['operation']}`")
+            lines.append(f"  - old: {patch['old_text'][:240]}")
+            lines.append(f"  - new: {patch['new_text'][:240]}")
+    if not any_applied:
+        lines.append("- No safe patches applied.")
+    lines.extend(["", "## Human review required", ""])
+    review=[p for p in patches if not p.get("applied")]
+    if not review:
+        lines.append("- None.")
+    for patch in review[:30]:
+        lines.append(f"- `{patch['patch_id']}` / `{patch['operation']}` / applied=`{patch.get('applied', False)}`")
+        lines.append(f"  - reason: {patch.get('apply_reason') or patch.get('reason','')[:300]}")
+        if patch.get("new_text"):
+            lines.append(f"  - proposed: {patch['new_text'][:240]}")
+    return "\n".join(lines)+"\n"
+
 def read_trace_records(path: Path) -> list[dict[str, Any]]:
     records = []
     with path.open("r", encoding="utf-8") as f:
@@ -1486,11 +1707,16 @@ def render_actual_report(article_profile: dict[str, Any] | None, claims: list[di
     return "\n".join(lines) + "\n"
 
 
-def write_artifacts(out_dir: Path, claims: list[dict[str, Any]], verdicts: list[dict[str, Any]], *, source_mode: str, source_path: Path | None, article_profile: dict[str, Any] | None = None, verification_plan: list[dict[str, Any]] | None = None, evidence_records: list[dict[str, Any]] | None = None) -> None:
+def write_artifacts(out_dir: Path, claims: list[dict[str, Any]], verdicts: list[dict[str, Any]], *, source_mode: str, source_path: Path | None, article_profile: dict[str, Any] | None = None, verification_plan: list[dict[str, Any]] | None = None, evidence_records: list[dict[str, Any]] | None = None, write_revision: bool = False) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     evidence = evidence_records if evidence_records is not None else synthesize_evidence(claims, verdicts, source_mode)
     review_queue = synthesize_review_queue(verdicts)
     suggestions = synthesize_suggestions(claims, verdicts)
+    patches: list[dict[str, Any]] = []
+    if write_revision and source_path and source_path.exists():
+        article_text = source_path.read_text(encoding="utf-8", errors="ignore")
+        patches = synthesize_patches(article_text, claims, verdicts, evidence)
+        revised_text, patches = apply_safe_patches(article_text, patches)
     manifest = {
         "schema_version": "v2-artifacts-0.1",
         "generated_at": now_iso(),
@@ -1504,6 +1730,9 @@ def write_artifacts(out_dir: Path, claims: list[dict[str, Any]], verdicts: list[
             "suggestions": "actual-suggestions.json",
             "manifest": "actual-manifest.json",
             "report": "actual-report.md",
+            "patches": "actual-patches.json" if write_revision else None,
+            "revised": "revised.md" if write_revision else None,
+            "revision_report": "revision-report.md" if write_revision else None,
             "article_profile": "article-profile.json" if article_profile else None,
             "verification_plan": "verification-plan.json" if verification_plan is not None else None,
         },
@@ -1513,6 +1742,8 @@ def write_artifacts(out_dir: Path, claims: list[dict[str, Any]], verdicts: list[
             "verdicts": len(verdicts),
             "review_queue": len(review_queue),
             "suggestions": len(suggestions),
+            "patches": len(patches),
+            "patches_applied": sum(1 for p in patches if p.get("applied")),
         },
     }
     write_json(out_dir / "actual-claims.json", claims)
@@ -1521,6 +1752,10 @@ def write_artifacts(out_dir: Path, claims: list[dict[str, Any]], verdicts: list[
     write_json(out_dir / "actual-review-queue.json", review_queue)
     write_json(out_dir / "actual-suggestions.json", suggestions)
     (out_dir / "actual-report.md").write_text(render_actual_report(article_profile, claims, verdicts, review_queue, suggestions), encoding="utf-8")
+    if write_revision and source_path and source_path.exists():
+        write_json(out_dir / "actual-patches.json", patches)
+        (out_dir / "revised.md").write_text(revised_text, encoding="utf-8")
+        (out_dir / "revision-report.md").write_text(render_revision_report(patches), encoding="utf-8")
     if article_profile is not None:
         write_json(out_dir / "article-profile.json", article_profile)
     if verification_plan is not None:
@@ -1537,6 +1772,8 @@ def main() -> int:
     parser.add_argument("--max-claims", type=int, default=DEFAULT_MAX_CLAIMS, help="Maximum native v2 claims to keep after article-aware filtering")
     parser.add_argument("--claim-extractor", choices=["rule", "llm", "hybrid"], default="hybrid", help="Claim graph extractor for native v2 mode. hybrid uses LLM when available and rule fallback otherwise; source-pack benchmark cases remain deterministic.")
     parser.add_argument("--evidence-mode", choices=["auto", "live", "missing"], default="auto", help="Evidence gathering mode for native v2 mode. auto/live query available source adapters when no source-pack is present; missing writes offline review records only.")
+    parser.add_argument("--write-revision", action="store_true", help="Also synthesize actual-patches.json, apply safe patches to revised.md, and write revision-report.md")
+    parser.add_argument("--post-audit-revision", choices=["none", "missing", "auto"], default="none", help="After writing revised.md, run a second v2 audit into post-audit/ using missing or auto evidence mode")
     parser.add_argument("--output-dir", required=True, help="Directory to write actual-* artifacts")
     parser.add_argument("--oracle", action="store_true", help="Use benchmark expected artifacts as oracle actual artifacts")
     args = parser.parse_args()
@@ -1557,7 +1794,17 @@ def main() -> int:
         article_path = Path(args.file)
         source_pack = Path(args.source_pack) if args.source_pack else None
         profile, claims, plans, verdicts, evidence = run_native_pipeline(article_path, source_pack, max_claims=args.max_claims, claim_extractor=args.claim_extractor, evidence_mode=args.evidence_mode)
-        write_artifacts(out_dir, claims, verdicts, source_mode="native", source_path=article_path, article_profile=profile, verification_plan=plans, evidence_records=evidence)
+        write_artifacts(out_dir, claims, verdicts, source_mode="native", source_path=article_path, article_profile=profile, verification_plan=plans, evidence_records=evidence, write_revision=args.write_revision)
+        revised_path = out_dir / "revised.md"
+        if args.write_revision and args.post_audit_revision != "none" and revised_path.exists():
+            post_profile, post_claims, post_plans, post_verdicts, post_evidence = run_native_pipeline(
+                revised_path,
+                None,
+                max_claims=min(args.max_claims, 40),
+                claim_extractor=args.claim_extractor,
+                evidence_mode=args.post_audit_revision,
+            )
+            write_artifacts(out_dir / "post-audit", post_claims, post_verdicts, source_mode="post_revision", source_path=revised_path, article_profile=post_profile, verification_plan=post_plans, evidence_records=post_evidence, write_revision=False)
     else:
         raise SystemExit("provide --file ARTICLE, --oracle --case CASE_DIR, or --trace TRACE_JSONL")
 
