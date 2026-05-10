@@ -131,15 +131,17 @@ python3 scripts/audit_v2.py \
   --output-dir /tmp/loa-v2-artifacts/000-smoke
 ```
 
-Native deterministic v2 scaffold:
+Native deterministic/hybrid v2 scaffold:
 
 ```bash
 python3 scripts/audit_v2.py \
   --file path/to/article.md \
+  --claim-extractor hybrid \
+  --max-claims 80 \
   --output-dir /tmp/loa-v2-artifacts/native-run
 ```
 
-This writes `article-profile.json`, `verification-plan.json`, and a human-readable `actual-report.md` in addition to the evaluator-facing `actual-*` JSON/JSONL artifacts. Native mode keeps at most `80` claims by default after article-aware filtering; override with `--max-claims N` when doing deeper review.
+This writes `article-profile.json`, `verification-plan.json`, and a human-readable `actual-report.md` in addition to the evaluator-facing `actual-*` JSON/JSONL artifacts. Native mode keeps at most `80` claims by default after article-aware filtering; override with `--max-claims N` when doing deeper review. See [`claim-extraction-strategy.md`](claim-extraction-strategy.md) for why v2 combines whole-article LLM extraction with claim-level evidence ledgers.
 
 Native mode can consume a deterministic source pack. If `ARTICLE_DIR/source-pack.json` exists, it is loaded automatically; otherwise pass it explicitly:
 

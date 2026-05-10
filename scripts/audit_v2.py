@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -84,6 +85,78 @@ def write_jsonl(path: Path, records: Iterable[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as f:
         for record in records:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def load_env() -> None:
+    env_path = Path.home() / ".hermes" / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def llm_config() -> tuple[str, str, str] | None:
+    load_env()
+    deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    dgx_key = os.environ.get("DGX_API_KEY")
+    base_url = os.environ.get("FACT_CHECK_BASE_URL")
+    model = os.environ.get("FACT_CHECK_MODEL")
+    if deepseek_key:
+        return (base_url or "https://api.deepseek.com/v1", model or "deepseek-chat", deepseek_key)
+    if openai_key:
+        return (base_url or "https://api.openai.com/v1", model or "gpt-4o-mini", openai_key)
+    if dgx_key and base_url:
+        return (base_url, model or "qwen3.6-35b-A3b-fp8", dgx_key)
+    return None
+
+
+def call_llm_json(messages: list[dict[str, str]], *, temperature: float = 0.1, timeout: int = 120) -> Any | None:
+    cfg = llm_config()
+    if cfg is None:
+        return None
+    base_url, model, api_key = cfg
+    try:
+        import requests
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        response = requests.post(
+            base_url.rstrip("/") + "/chat/completions",
+            headers=headers,
+            json={
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "response_format": {"type": "json_object"},
+            },
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"]
+        return parse_json_payload(content)
+    except Exception:
+        return None
+
+
+def parse_json_payload(text: str) -> Any | None:
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"(\{.*\}|\[.*\])", text, flags=re.S)
+        if not match:
+            return None
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            return None
 
 
 def normalize_claims(raw_claims: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -450,6 +523,84 @@ def extract_claim_graph(text: str, source_name: str = "original.md", max_claims:
     return claims
 
 
+def llm_extract_claim_graph(text: str, source_name: str = "original.md", max_claims: int = DEFAULT_MAX_CLAIMS) -> list[dict[str, Any]]:
+    """Use an LLM for article-aware claim graph extraction.
+
+    The LLM sees the whole article and selects only important, independently
+    verifiable claims. This complements the rule extractor: the LLM handles
+    global context and planning/local-vs-public distinctions, while the rules
+    remain as deterministic fallback and CI-safe baseline.
+    """
+    article = text
+    if len(article) > 45000:
+        article = article[:45000] + "\n\n[TRUNCATED FOR CLAIM EXTRACTION]"
+    prompt = f"""
+You are building a fact-check claim graph for a long-form technical article.
+Return JSON only, no markdown.
+
+Task:
+- Read the article globally before selecting claims.
+- Extract at most {max_claims} important atomic factual claims.
+- Do NOT extract every sentence.
+- Prefer high-impact claims: dates, numbers, versions, project status, capabilities, compatibility, requirements, architecture, causal/comparative claims.
+- Skip pure opinions, headings, instructions, code blocks, obvious recommendations, and rhetorical filler.
+- If a statement is local/private/planning-specific, include it only if it is important and mark verifiability accordingly.
+
+Output shape:
+{{
+  "claims": [
+    {{
+      "claim_text": "exact claim text or minimally repaired atomic claim",
+      "claim_type": "DATE|NUMBER|EVENT|ATTR|STATUS|FEATURE|REQUIREMENT|COMPAT|WORKFLOW|EVAL|CAUSAL|ASSUMPTION",
+      "subject": "main subject",
+      "predicate": "short predicate",
+      "object": "object/value",
+      "scope": "public|local|planning|article",
+      "time_context": "current|historical|future|unspecified",
+      "verifiability": "public|local|mixed|not_publicly_verifiable|not_factual",
+      "importance": "high|medium|low",
+      "risk_level": "high|medium|low",
+      "source_quote": "short quote from article"
+    }}
+  ]
+}}
+
+Article:
+{article}
+""".strip()
+    payload = call_llm_json([
+        {"role": "system", "content": "You extract audit-ready claim graphs. Return strict JSON."},
+        {"role": "user", "content": prompt},
+    ])
+    if not isinstance(payload, dict) or not isinstance(payload.get("claims"), list):
+        return []
+    claims: list[dict[str, Any]] = []
+    for item in payload["claims"][:max_claims]:
+        if not isinstance(item, dict):
+            continue
+        claim_text = str(item.get("claim_text") or "").strip()
+        if not claim_text or is_probably_noise(claim_text):
+            continue
+        claims.append(
+            {
+                "claim_id": f"c-{len(claims)+1:03d}",
+                "source_span": {"file": source_name, "start_line": None, "end_line": None, "quote": str(item.get("source_quote") or claim_text)[:500]},
+                "claim_text": claim_text,
+                "claim_type": str(item.get("claim_type") or infer_claim_type(claim_text)),
+                "subject": str(item.get("subject") or (extract_subjects(claim_text)[0] if extract_subjects(claim_text) else "unknown")),
+                "predicate": str(item.get("predicate") or "unknown"),
+                "object": str(item.get("object") or claim_text),
+                "scope": str(item.get("scope") or "article"),
+                "time_context": str(item.get("time_context") or "current_or_unspecified"),
+                "verifiability": str(item.get("verifiability") or infer_verifiability(claim_text)),
+                "importance": str(item.get("importance") or "medium"),
+                "risk_level": str(item.get("risk_level") or "medium"),
+                "source": "llm_claim_graph",
+            }
+        )
+    return claims
+
+
 def plan_evidence(claims: list[dict[str, Any]]) -> list[dict[str, Any]]:
     plans = []
     for claim in claims:
@@ -641,13 +792,28 @@ def native_verdict_for_claim(claim: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_native_pipeline(article_path: Path, source_pack_path: Path | None = None, max_claims: int = DEFAULT_MAX_CLAIMS) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+def run_native_pipeline(article_path: Path, source_pack_path: Path | None = None, max_claims: int = DEFAULT_MAX_CLAIMS, claim_extractor: str = "hybrid") -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     text = article_path.read_text(encoding="utf-8", errors="ignore")
     profile = classify_article(text, article_path)
-    claims = extract_claim_graph(text, article_path.name, max_claims=max_claims)
-    profile["max_claims"] = max_claims
-    plans = plan_evidence(claims)
     pack_path = source_pack_for_article(article_path, source_pack_path)
+    extractor_used = "rule"
+    # Public benchmark/source-pack cases stay deterministic; real articles use
+    # LLM-assisted extraction when available.
+    if claim_extractor in {"llm", "hybrid"} and not pack_path:
+        claims = llm_extract_claim_graph(text, article_path.name, max_claims=max_claims)
+        if claims:
+            extractor_used = "llm"
+        elif claim_extractor == "llm":
+            claims = []
+            extractor_used = "llm_failed"
+        else:
+            claims = extract_claim_graph(text, article_path.name, max_claims=max_claims)
+            extractor_used = "rule_fallback"
+    else:
+        claims = extract_claim_graph(text, article_path.name, max_claims=max_claims)
+    profile["max_claims"] = max_claims
+    profile["claim_extractor"] = extractor_used
+    plans = plan_evidence(claims)
     source_pack = load_source_pack(pack_path)
     if source_pack:
         evidence = evidence_from_source_pack(claims, source_pack)
@@ -764,6 +930,7 @@ def main() -> int:
     parser.add_argument("--file", help="Run the native deterministic v2 scaffold on a Markdown/text file")
     parser.add_argument("--source-pack", help="Optional JSON source-pack evidence file for native v2 mode; defaults to ARTICLE_DIR/source-pack.json when present")
     parser.add_argument("--max-claims", type=int, default=DEFAULT_MAX_CLAIMS, help="Maximum native v2 claims to keep after article-aware filtering")
+    parser.add_argument("--claim-extractor", choices=["rule", "llm", "hybrid"], default="hybrid", help="Claim graph extractor for native v2 mode. hybrid uses LLM when available and rule fallback otherwise; source-pack benchmark cases remain deterministic.")
     parser.add_argument("--output-dir", required=True, help="Directory to write actual-* artifacts")
     parser.add_argument("--oracle", action="store_true", help="Use benchmark expected artifacts as oracle actual artifacts")
     args = parser.parse_args()
@@ -783,7 +950,7 @@ def main() -> int:
     elif args.file:
         article_path = Path(args.file)
         source_pack = Path(args.source_pack) if args.source_pack else None
-        profile, claims, plans, verdicts, evidence = run_native_pipeline(article_path, source_pack, max_claims=args.max_claims)
+        profile, claims, plans, verdicts, evidence = run_native_pipeline(article_path, source_pack, max_claims=args.max_claims, claim_extractor=args.claim_extractor)
         write_artifacts(out_dir, claims, verdicts, source_mode="native", source_path=article_path, article_profile=profile, verification_plan=plans, evidence_records=evidence)
     else:
         raise SystemExit("provide --file ARTICLE, --oracle --case CASE_DIR, or --trace TRACE_JSONL")
