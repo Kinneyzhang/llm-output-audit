@@ -36,6 +36,7 @@ jobs:
           python -m py_compile scripts/install_agent_skill.py
           python -m py_compile scripts/mcp_server.py
           python -m py_compile scripts/eval_auditor.py
+          python -m py_compile scripts/build_public_benchmark.py
           python -m py_compile benchmark/public/common_adapter.py benchmark/public/*/adapter.py
 
       - name: CLI help smoke test
@@ -158,10 +159,18 @@ jobs:
 
       - name: v2 benchmark scaffold smoke test
         run: |
+          python scripts/build_public_benchmark.py --output /tmp/loa-public-cases --clean-public
+          python scripts/eval_auditor.py /tmp/loa-public-cases --output /tmp/loa-built-benchmark-report.md --json-output /tmp/loa-built-benchmark-report.json
           python scripts/eval_auditor.py benchmark/cases --output /tmp/loa-benchmark-report.md --json-output /tmp/loa-benchmark-report.json
           python - <<'PY'
           import json
           from pathlib import Path
+
+          built = json.loads(Path('/tmp/loa-built-benchmark-report.json').read_text())['summary']
+          assert built['case_count'] == 7
+          assert built['valid_case_count'] == 7
+          assert built['layers'].get('public_core', 0) == 6
+          assert built['layers'].get('technical_domain', 0) == 1
 
           payload = json.loads(Path('/tmp/loa-benchmark-report.json').read_text())
           summary = payload['summary']

@@ -29,6 +29,12 @@ The repository includes small JSONL samples under `benchmark/public/samples/`. T
 Example:
 
 ```bash
+python3 scripts/build_public_benchmark.py --output /tmp/loa-public-cases --clean-public
+```
+
+or run one adapter directly:
+
+```bash
 python3 benchmark/public/averitec/adapter.py \
   --input benchmark/public/samples/averitec.sample.jsonl \
   --output benchmark/cases \
