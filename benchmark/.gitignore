@@ -1,0 +1,5 @@
+# Private/local benchmark cases must not be committed.
+local-*/
+private-*/
+*.local.json
+*.trace.jsonl

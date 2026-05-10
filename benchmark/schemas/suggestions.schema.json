@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Suggestions",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "suggestion_id",
+      "claim_id",
+      "severity",
+      "old_text",
+      "new_text",
+      "reason",
+      "evidence_ids",
+      "safe_to_apply"
+    ],
+    "properties": {
+      "suggestion_id": {
+        "type": "string"
+      },
+      "claim_id": {
+        "type": "string"
+      },
+      "severity": {
+        "type": "string",
+        "enum": [
+          "must_fix",
+          "should_fix",
+          "optional",
+          "citation_needed",
+          "local_verify",
+          "none"
+        ]
+      },
+      "old_text": {
+        "type": "string"
+      },
+      "new_text": {
+        "type": "string"
+      },
+      "reason": {
+        "type": "string"
+      },
+      "evidence_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "safe_to_apply": {
+        "type": "boolean"
+      }
+    },
+    "additionalProperties": true
+  }
+}

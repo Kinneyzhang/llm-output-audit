@@ -1,0 +1,9 @@
+{
+  "case_id": "000-smoke",
+  "visibility": "public",
+  "article_type": "technical_explainer",
+  "primary_subjects": [
+    "Caddy"
+  ],
+  "notes": "Synthetic smoke case; no private user data."
+}

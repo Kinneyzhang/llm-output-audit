@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewQueue",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "review_id",
+      "claim_id",
+      "queue",
+      "rubric",
+      "status"
+    ],
+    "properties": {
+      "review_id": {
+        "type": "string"
+      },
+      "claim_id": {
+        "type": "string"
+      },
+      "queue": {
+        "type": "string",
+        "enum": [
+          "Must Fix",
+          "Should Fix",
+          "Needs Citation",
+          "Needs Local Verification",
+          "Human Review",
+          "Safe",
+          "Ignored"
+        ]
+      },
+      "rubric": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "reviewed",
+          "ignored"
+        ]
+      },
+      "reviewer_decision": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "additionalProperties": true
+  }
+}

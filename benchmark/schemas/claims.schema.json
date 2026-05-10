@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Claims",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "claim_id",
+      "source_span",
+      "claim_text",
+      "claim_type",
+      "subject",
+      "predicate",
+      "object",
+      "verifiability",
+      "importance",
+      "risk_level"
+    ],
+    "properties": {
+      "claim_id": {
+        "type": "string"
+      },
+      "source_span": {
+        "type": "object",
+        "required": [
+          "file",
+          "start_line",
+          "end_line",
+          "quote"
+        ],
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "start_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quote": {
+            "type": "string"
+          }
+        }
+      },
+      "claim_text": {
+        "type": "string"
+      },
+      "claim_type": {
+        "type": "string",
+        "enum": [
+          "DATE",
+          "NUMBER",
+          "EVENT",
+          "ATTR",
+          "STATUS",
+          "FEATURE",
+          "REQUIREMENT",
+          "COMPAT",
+          "WORKFLOW",
+          "EVAL",
+          "CAUSAL",
+          "METADATA",
+          "ASSUMPTION",
+          "OTHER"
+        ]
+      },
+      "subject": {
+        "type": "string"
+      },
+      "predicate": {
+        "type": "string"
+      },
+      "object": {},
+      "scope": {
+        "type": "string"
+      },
+      "time_context": {
+        "type": "string"
+      },
+      "verifiability": {
+        "type": "string",
+        "enum": [
+          "public",
+          "local",
+          "mixed",
+          "not_publicly_verifiable",
+          "not_factual",
+          "unknown"
+        ]
+      },
+      "importance": {
+        "type": "string",
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ]
+      },
+      "risk_level": {
+        "type": "string",
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ]
+      }
+    },
+    "additionalProperties": true
+  }
+}

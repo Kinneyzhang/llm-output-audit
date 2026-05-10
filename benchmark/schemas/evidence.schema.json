@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EvidenceRecord",
+  "type": "object",
+  "required": [
+    "evidence_id",
+    "claim_id",
+    "source_type",
+    "authority",
+    "subject_match",
+    "quote",
+    "retrieved_at",
+    "supports",
+    "contradicts",
+    "scores"
+  ],
+  "properties": {
+    "evidence_id": {
+      "type": "string"
+    },
+    "claim_id": {
+      "type": "string"
+    },
+    "source_type": {
+      "type": "string"
+    },
+    "authority": {
+      "type": "string",
+      "enum": [
+        "canonical",
+        "official",
+        "primary",
+        "secondary",
+        "weak",
+        "unknown"
+      ]
+    },
+    "subject_match": {
+      "type": "string",
+      "enum": [
+        "exact",
+        "partial",
+        "ambiguous",
+        "mismatch",
+        "unknown"
+      ]
+    },
+    "quote": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    },
+    "retrieved_at": {
+      "type": "string"
+    },
+    "supports": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "contradicts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "missing": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "scores": {
+      "type": "object",
+      "properties": {
+        "retrieval_relevance": {
+          "type": "number"
+        },
+        "source_authority": {
+          "type": "number"
+        },
+        "evidence_coverage": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

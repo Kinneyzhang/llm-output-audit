@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ArticleProfile",
+  "type": "object",
+  "required": [
+    "article_type",
+    "primary_subjects",
+    "audit_policy",
+    "requires_local_context",
+    "preferred_sources",
+    "weak_sources"
+  ],
+  "properties": {
+    "article_type": {
+      "type": "string",
+      "enum": [
+        "technical_explainer",
+        "product_usage_guide",
+        "local_deployment_note",
+        "project_comparison",
+        "research_plan",
+        "project_research",
+        "incident_postmortem",
+        "opinion_essay",
+        "unknown"
+      ]
+    },
+    "primary_subjects": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "audit_policy": {
+      "type": "string"
+    },
+    "requires_local_context": {
+      "type": "boolean"
+    },
+    "preferred_sources": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "weak_sources": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}
