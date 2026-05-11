@@ -20,6 +20,23 @@ The pipeline separates drafting from auditing: text is converted into typed clai
 
 See [examples/demo-report.md](examples/demo-report.md) for an illustrative audit report showing verdict sections, routed sources, source quality, and edit suggestions.
 
+## Standalone Web UI
+
+Run a local visual UI when you want to paste text and watch the audit pipeline step by step:
+
+```bash
+python3 scripts/web_app.py --host 127.0.0.1 --port 8765 --clean
+```
+
+Open <http://127.0.0.1:8765/>. The page provides:
+
+- input textarea for the original text
+- audit options: `evidence_mode`, `claim_extractor`, `max_claims`
+- live Server-Sent Events progress for v2 artifacts: profile, claims, plan, evidence, verdicts, review queue, suggestions, patches, revised text, and report
+- tabs for overview, claims, evidence, revised text, and full report
+
+The Web UI calls `scripts/audit_v2.py --write-revision` under the hood and stores temporary runs in `.audit-web-runs/`.
+
 ## Why this exists
 
 LLMs are good at drafting, but long-form AI output tends to fail in predictable ways:

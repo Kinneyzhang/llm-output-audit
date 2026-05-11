@@ -20,6 +20,23 @@ LLM Output Audit 是一个可移植的审计工具包，用于在保存、发布
 
 查看 [examples/demo-report.md](examples/demo-report.md)，可以看到一份示意性审计报告，包括 verdict 分区、routed sources、source quality 和 edit suggestions。
 
+## 独立 Web UI
+
+想直观看到技能服务效果时，可以启动本地页面：
+
+```bash
+python3 scripts/web_app.py --host 127.0.0.1 --port 8765 --clean
+```
+
+打开 <http://127.0.0.1:8765/>。页面提供：
+
+- 原文输入框：直接粘贴要审查的文本
+- 审查选项：`evidence_mode`、`claim_extractor`、`max_claims`
+- 实时过程展示：通过 Server-Sent Events 依次显示 profile、claims、verification plan、evidence、verdicts、review queue、suggestions、patches、revised text、report
+- 结果页签：总览、Claims、Evidence、修订文本、完整报告
+
+这个 Web UI 底层调用 `scripts/audit_v2.py --write-revision`，临时运行结果保存在 `.audit-web-runs/`。
+
 ## 为什么需要它
 
 大模型很擅长起草，但长文输出常见几类问题：

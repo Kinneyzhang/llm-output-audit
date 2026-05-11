@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .env
 *.env
+.audit-web-runs/
 README-audit.md
 *-audit.md
 .DS_Store
