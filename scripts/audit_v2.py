@@ -69,7 +69,7 @@ NON_FACTUAL_CUES = {
     "建议", "推荐", "可以", "应该", "值得", "最好", "下一步", "目标", "计划", "待", "如果", "我", "老大",
     "should", "could", "would", "recommend", "next", "todo", "plan", "prefer",
 }
-LOCAL_CUES = {"老大", "本机", "内网", "局域网", "我的", "个人", "BuJo", "DGX", "懒猫", "localhost", "local", "private"}
+LOCAL_CUES = {"老大", "本机", "内网", "局域网", "我的", "个人", "BuJo", "懒猫", "localhost", "local", "private"}
 CODE_LIKE_RE = re.compile(r"(```|^\s*(pip|npm|python|docker|curl|git|systemctl|export|cd|source)|[{};]{2,}|</?\w+>)", re.I)
 
 
@@ -672,6 +672,10 @@ def should_keep_claim(sentence: str) -> bool:
 def infer_verifiability(sentence: str) -> str:
     lowered = sentence.lower()
     if any(cue.lower() in lowered for cue in LOCAL_CUES):
+        # Product names such as NVIDIA DGX are public facts; do not mark them
+        # local merely because they contain the user's local-hardware keywords.
+        if any(public_term in lowered for public_term in ["nvidia dgx", "dgx spark", "gb10", "official", "官网"]):
+            return "public"
         return "local"
     if any(cue.lower() in lowered for cue in ["计划", "待", "目标", "建议", "recommend", "plan", "should"]):
         return "not_publicly_verifiable"
@@ -1070,16 +1074,42 @@ def github_readme_evidence(claim: dict[str, Any]) -> list[dict[str, Any]]:
         "scores": {"retrieval_relevance": 0.65, "source_authority": 0.85, "evidence_coverage": 0.35},
     }]
 
+def source_error_record(claim: dict[str, Any], source_type: str, message: str) -> dict[str, Any]:
+    claim_id = claim["claim_id"]
+    return {
+        "evidence_id": f"error-{source_type}-{claim_id}",
+        "claim_id": claim_id,
+        "source_type": f"{source_type}_error",
+        "authority": "diagnostic",
+        "subject_match": "none",
+        "quote": message[:1000],
+        "url": None,
+        "retrieved_at": now_iso(),
+        "supports": [],
+        "contradicts": [],
+        "missing": [claim_id],
+        "scores": {"retrieval_relevance": 0.0, "source_authority": 0.0, "evidence_coverage": 0.0},
+    }
+
+
 def tavily_evidence(claim: dict[str, Any], max_results: int = 3) -> list[dict[str, Any]]:
     load_env()
     key = os.environ.get("TAVILY_API_KEY")
     if not key:
-        return []
+        return [source_error_record(claim, "tavily", "TAVILY_API_KEY is not configured; skipping Tavily web search.")]
     text = claim.get("claim_text", "")
     payload = {"api_key": key, "query": text, "max_results": max_results, "search_depth": "basic"}
-    data = http_post_json("https://api.tavily.com/search", payload, timeout=25)
+    try:
+        import requests
+        resp = requests.post("https://api.tavily.com/search", json=payload, timeout=25)
+        if not resp.ok:
+            detail = resp.text[:500].replace(key, "[REDACTED]")
+            return [source_error_record(claim, "tavily", f"Tavily search failed with HTTP {resp.status_code}: {detail}")]
+        data = resp.json()
+    except Exception as exc:
+        return [source_error_record(claim, "tavily", f"Tavily search exception: {type(exc).__name__}: {exc}")]
     if not isinstance(data, dict):
-        return []
+        return [source_error_record(claim, "tavily", "Tavily returned a non-JSON-object response.")]
     out = []
     for i, r in enumerate(data.get("results", [])[:max_results], start=1):
         out.append({
@@ -1096,6 +1126,8 @@ def tavily_evidence(claim: dict[str, Any], max_results: int = 3) -> list[dict[st
             "missing": [claim["claim_id"]],
             "scores": {"retrieval_relevance": float(r.get("score") or 0.5), "source_authority": 0.55, "evidence_coverage": 0.25},
         })
+    if not out:
+        return [source_error_record(claim, "tavily", "Tavily search returned zero results for this query.")]
     return out
 
 
@@ -1103,6 +1135,15 @@ def tavily_evidence(claim: dict[str, Any], max_results: int = 3) -> list[dict[st
 
 
 OFFICIAL_DOC_URLS = {
+    "dgx spark": [
+        "https://www.nvidia.com/en-us/products/workstations/dgx-spark/",
+    ],
+    "nvidia dgx spark": [
+        "https://www.nvidia.com/en-us/products/workstations/dgx-spark/",
+    ],
+    "gb10": [
+        "https://www.nvidia.com/en-us/products/workstations/dgx-spark/",
+    ],
     "caddy": [
         "https://caddyserver.com/docs/automatic-https",
         "https://caddyserver.com/docs/caddyfile/directives/reverse_proxy",
@@ -1345,6 +1386,127 @@ def judge_claim_with_llm(claim: dict[str, Any], evidence: list[dict[str, Any]]) 
     }
 
 
+SPECIAL_LINE_COUNT_CACHE: dict[str, tuple[int, int, str]] = {}
+
+
+def github_archive_line_count(repo: str, ref: str, prefix: str, suffixes: tuple[str, ...]) -> tuple[int, int, str] | None:
+    cache_key = f"{repo}@{ref}:{prefix}:{','.join(suffixes)}"
+    if cache_key in SPECIAL_LINE_COUNT_CACHE:
+        return SPECIAL_LINE_COUNT_CACHE[cache_key]
+    try:
+        import io
+        import tarfile
+        import requests
+        url = f"https://github.com/{repo}/archive/refs/heads/{ref}.tar.gz"
+        resp = requests.get(url, headers={"User-Agent": "llm-output-audit-v2/0.1"}, timeout=120)
+        if not resp.ok:
+            return None
+        files = 0
+        lines = 0
+        with tarfile.open(fileobj=io.BytesIO(resp.content), mode="r:gz") as archive:
+            for member in archive:
+                parts = member.name.split("/", 1)
+                rel = parts[1] if len(parts) > 1 else ""
+                if not member.isfile() or not rel.startswith(prefix) or not rel.endswith(suffixes):
+                    continue
+                fh = archive.extractfile(member)
+                if fh is None:
+                    continue
+                files += 1
+                lines += sum(1 for _ in fh)
+        result = (files, lines, url)
+        SPECIAL_LINE_COUNT_CACHE[cache_key] = result
+        return result
+    except Exception:
+        return None
+
+
+def github_tree_count(repo: str, ref: str, prefix: str) -> tuple[int, int, str] | None:
+    try:
+        url = f"https://api.github.com/repos/{repo}/git/trees/{urllib.parse.quote(ref)}?recursive=1"
+        data = http_json(url, headers={"User-Agent": "llm-output-audit-v2/0.1"}, timeout=30)
+        if not isinstance(data, dict):
+            return None
+        items = [x for x in data.get("tree", []) if x.get("type") == "blob" and str(x.get("path", "")).startswith(prefix)]
+        return len(items), int(sum(int(x.get("size") or 0) for x in items)), url
+    except Exception:
+        return None
+
+
+def specialized_evidence(claim: dict[str, Any]) -> list[dict[str, Any]]:
+    text = str(claim.get("claim_text") or "")
+    lower = text.lower()
+    claim_id = claim["claim_id"]
+    records: list[dict[str, Any]] = []
+    if "dgx spark" in lower or "gb10" in lower:
+        url = "https://www.nvidia.com/en-us/products/workstations/dgx-spark/"
+        body = fetch_text_url(url, timeout=20)
+        compact = body.lower()
+        found = {
+            "gb10": "gb10" in compact and "grace blackwell" in compact,
+            "128gb": "128 gb" in compact and "lpddr5x" in compact,
+            "273gb/s": "273 gb/s" in compact,
+            "fp4": ("one petaflop" in compact or "1 peta" in compact or "1 pflop" in compact) and "fp4" in compact,
+        }
+        if body:
+            quote = relevant_quote(body, "DGX Spark GB10 Grace Blackwell 128 GB LPDDR5x 273 GB/s FP4 one petaFLOP Tensor Performance Memory Bandwidth", max_chars=1800)
+            supports = [claim_id] if all(found.values()) else []
+            records.append({
+                "evidence_id": f"official-dgx-spark-{claim_id}",
+                "claim_id": claim_id,
+                "source_type": "official_product_page",
+                "authority": "official",
+                "subject_match": "exact",
+                "quote": f"NVIDIA DGX Spark official page/spec text matched fields {found}. Relevant quote: {quote}",
+                "url": url,
+                "retrieved_at": now_iso(),
+                "supports": supports,
+                "contradicts": [],
+                "missing": [] if supports else [claim_id],
+                "scores": {"retrieval_relevance": 0.98, "source_authority": 1.0, "evidence_coverage": 0.95 if supports else 0.55},
+            })
+    if "emacs" in lower and "lisp" in lower and ("行" in text or "line" in lower):
+        counted = github_archive_line_count("emacs-mirror/emacs", "master", "lisp/", (".el",))
+        if counted:
+            files, lines, url = counted
+            claimed = extract_claim_number(text)
+            contradicts = [claim_id] if claimed and abs(lines - claimed) > max(50_000, int(claimed * 0.25)) else []
+            supports = [claim_id] if claimed and not contradicts else []
+            records.append({
+                "evidence_id": f"stat-emacs-lisp-{claim_id}",
+                "claim_id": claim_id,
+                "source_type": "github_archive_line_count",
+                "authority": "canonical",
+                "subject_match": "exact",
+                "quote": f"Counted Emacs mirror archive {url}: lisp/*.el files={files}, physical lines={lines}. This directly checks the GNU Emacs lisp/ directory line-count claim.",
+                "url": "https://github.com/emacs-mirror/emacs/tree/master/lisp",
+                "retrieved_at": now_iso(),
+                "supports": supports,
+                "contradicts": contradicts,
+                "missing": [] if supports or contradicts else [claim_id],
+                "scores": {"retrieval_relevance": 0.98, "source_authority": 0.9, "evidence_coverage": 0.95},
+            })
+    if "melpa" in lower:
+        counted = github_tree_count("melpa/melpa", "master", "recipes/")
+        if counted:
+            files, bytes_size, url = counted
+            records.append({
+                "evidence_id": f"stat-melpa-recipes-{claim_id}",
+                "claim_id": claim_id,
+                "source_type": "github_tree_metadata",
+                "authority": "canonical",
+                "subject_match": "medium",
+                "quote": f"MELPA recipe repository contains {files} recipe files under recipes/ (total recipe bytes={bytes_size}). This verifies MELPA package index size, but not total lines across every upstream package repository; that requires crawling each recipe's upstream repo.",
+                "url": "https://github.com/melpa/melpa/tree/master/recipes",
+                "retrieved_at": now_iso(),
+                "supports": [],
+                "contradicts": [],
+                "missing": [claim_id],
+                "scores": {"retrieval_relevance": 0.85, "source_authority": 0.9, "evidence_coverage": 0.45},
+            })
+    return records
+
+
 def live_evidence_for_claim(claim: dict[str, Any], plan: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     claim_id = claim["claim_id"]
     ver = claim.get("verifiability")
@@ -1357,6 +1519,7 @@ def live_evidence_for_claim(claim: dict[str, Any], plan: dict[str, Any] | None =
             "scores": {"retrieval_relevance": 0.8, "source_authority": 0.0, "evidence_coverage": 0.0},
         }]
     records: list[dict[str, Any]] = []
+    records.extend(specialized_evidence(claim))
     preferred = set((plan or {}).get("preferred_sources", []))
     if "github_api" in preferred or "source_repo" in preferred or "github" in claim.get("claim_text", "").lower() or claim_mentions_stars(claim.get("claim_text", "")):
         records.extend(github_repo_evidence(claim))
@@ -1553,7 +1716,15 @@ def verdicts_from_evidence(claims: list[dict[str, Any]], evidence: list[dict[str
         elif missing:
             truth = "not_enough_evidence"
             confidence = 0.45
-            reason = missing[0].get("quote") or "No sufficient evidence was found."
+            informative_missing = [
+                item for item in missing
+                if item.get("authority") != "diagnostic" and not str(item.get("source_type", "")).endswith("_error")
+            ]
+            if informative_missing:
+                informative_missing.sort(key=lambda item: float(item.get("scores", {}).get("retrieval_relevance", 0.0)), reverse=True)
+                reason = informative_missing[0].get("quote") or "Relevant evidence was found but did not fully verify the claim."
+            else:
+                reason = missing[0].get("quote") or "No sufficient evidence was found."
         else:
             truth = "not_enough_evidence"
             confidence = 0.35
