@@ -551,6 +551,8 @@ Based on testing against AI/tech research articles:
 
 ## Common Pitfalls
 
+0. **Patching source adapters forever** — Do not treat every failed claim as a request for another one-off source adapter. First infer the evidence owner and verification method: vendor specs, source repo stats, package registry, package-index-plus-upstream crawl, benchmark/model card, academic index, local files, or human owner knowledge. The plan should expose `source_kind`, `authority_target`, `execution_method`, `locator_hints`, and adapter coverage before evidence gathering. Missing adapter coverage is a product gap, not the same thing as `not_enough_evidence`.
+
 1. **Extracting too many claims** — Opinion sentences slip in as "claims". Stick to TYPE prefixes; if a sentence can't be typed, skip it.
 
 2. **Treating "unsourced" as "wrong"** — 🔍 means the web didn't help, not that the claim is false. Niche facts about internal tools, local deployments, or very recent events often come back 🔍.
