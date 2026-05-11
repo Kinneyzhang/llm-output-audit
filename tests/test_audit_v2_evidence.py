@@ -38,6 +38,17 @@ class AuditV2EvidenceTests(unittest.TestCase):
         finally:
             audit_v2.github_archive_line_count = old_counter
 
+    def test_planner_infers_evidence_owner_not_just_adapter(self):
+        claims = [
+            {"claim_id": "c-001", "claim_text": "NVIDIA DGX Spark 搭载 GB10 Grace Blackwell Superchip，拥有 128GB LPDDR5X 统一内存。", "verifiability": "public", "claim_type": "ATTR", "subject": "NVIDIA DGX Spark"},
+            {"claim_id": "c-002", "claim_text": "MELPA 全部包预计约 200 万行。", "verifiability": "public", "claim_type": "NUMBER", "subject": "MELPA"},
+        ]
+        plans = audit_v2.plan_evidence(claims)
+        self.assertEqual(plans[0]["source_kind"], "vendor_product_specs")
+        self.assertEqual(plans[0]["authority_target"], "vendor official product/specification page")
+        self.assertEqual(plans[1]["source_kind"], "package_index_plus_upstream_repo_crawl")
+        self.assertIn("upstream_repo_loc_crawler", plans[1]["adapter_status"])
+
     def test_missing_reason_prefers_informative_evidence_over_source_error(self):
         claims = [{"claim_id": "c-008", "claim_text": "MELPA 全部包预计约 200 万行。", "verifiability": "public"}]
         evidence = [

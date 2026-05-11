@@ -1577,22 +1577,175 @@ def gather_live_evidence(claims: list[dict[str, Any]], plans: list[dict[str, Any
     records.sort(key=lambda item: str(item.get("evidence_id", "")))
     return records
 
+def infer_verification_strategy(claim: dict[str, Any]) -> dict[str, Any]:
+    """Infer where a claim *should* be verified before trying adapters.
+
+    This is deliberately about evidence ownership, not about today's available
+    adapters. The audit UI can therefore distinguish three states:
+    found evidence, searched wrong place, or correct method known but not yet
+    executable.
+    """
+    text = str(claim.get("claim_text") or "")
+    lower = text.lower()
+    claim_type = str(claim.get("claim_type") or "UNKNOWN")
+    subject = str(claim.get("subject") or "unknown")
+
+    strategy = {
+        "source_kind": "official_or_canonical_reference",
+        "authority_target": "canonical_reference_or_official_docs",
+        "execution_method": "web_search_then_fetch_official_page",
+        "locator_hints": [],
+        "queries": [text],
+        "adapter_status": "generic_web_required",
+        "rationale": "Default: public factual claim should be checked against official/canonical references before secondary snippets.",
+    }
+
+    if claim.get("verifiability") == "local":
+        return {
+            **strategy,
+            "source_kind": "local_context",
+            "authority_target": "local_files_logs_or_owner_knowledge",
+            "execution_method": "local_review_checklist",
+            "locator_hints": ["local filesystem", "deployment logs", "human owner"],
+            "adapter_status": "manual_or_local_required",
+            "rationale": "The claim depends on local/private context rather than public web evidence.",
+        }
+    if claim.get("verifiability") == "not_publicly_verifiable":
+        return {
+            **strategy,
+            "source_kind": "planning_or_estimate",
+            "authority_target": "explicit assumptions or owner confirmation",
+            "execution_method": "human_review_with_assumption_check",
+            "locator_hints": ["planning document", "benchmark run", "owner confirmation"],
+            "adapter_status": "manual_required",
+            "rationale": "The claim is an estimate/plan; public sources can verify assumptions but not the final local estimate.",
+        }
+
+    if any(term in lower for term in ["dgx spark", "gb10", "grace blackwell", "lpddr5x", "fp4", "pflops"]):
+        return {
+            **strategy,
+            "source_kind": "vendor_product_specs",
+            "authority_target": "vendor official product/specification page",
+            "execution_method": "fetch_official_product_page",
+            "locator_hints": ["nvidia.com", "NVIDIA DGX Spark product page", "datasheet/specifications"],
+            "queries": [
+                "NVIDIA DGX Spark specifications GB10 128 GB LPDDR5x 273 GB/s FP4",
+                text,
+            ],
+            "adapter_status": "implemented:nvidia_dgx_spark_product_page",
+            "rationale": "Hardware specifications are source-owned by the vendor; generic search snippets are secondary.",
+        }
+
+    if any(term in lower for term in ["行", "lines", "loc", "line count", "源码", "source code"]):
+        if "emacs" in lower and "lisp" in lower:
+            return {
+                **strategy,
+                "source_kind": "source_repository_statistic",
+                "authority_target": "source repository archive/tree",
+                "execution_method": "download_or_tree_walk_and_count_lines",
+                "locator_hints": ["emacs-mirror/emacs", "lisp/", "*.el"],
+                "queries": ["GNU Emacs source repository lisp directory", text],
+                "adapter_status": "implemented:github_archive_line_count",
+                "rationale": "Repository line counts should be computed from the source tree, not searched as prose.",
+            }
+        if "melpa" in lower:
+            return {
+                **strategy,
+                "source_kind": "package_index_plus_upstream_repo_crawl",
+                "authority_target": "package index recipes plus each upstream source repository",
+                "execution_method": "crawl_package_recipes_then_count_upstream_repositories",
+                "locator_hints": ["melpa/melpa recipes", "recipe upstream repo URLs", "per-repo LOC counters"],
+                "queries": ["MELPA package recipes upstream repositories", text],
+                "adapter_status": "partial:melpa_recipe_index_only;missing:upstream_repo_loc_crawler",
+                "rationale": "Total LOC across all MELPA packages is not owned by one web page; it requires crawling the package index and then the upstream repos.",
+            }
+        return {
+            **strategy,
+            "source_kind": "source_repository_statistic",
+            "authority_target": "source repository archive/tree",
+            "execution_method": "loc_counter_against_source_tree",
+            "locator_hints": [subject, "GitHub/GitLab/source repo", "target directory/file globs"],
+            "adapter_status": "needs_repo_locator_and_loc_counter",
+            "rationale": "Code size claims should be measured from source repositories rather than generic web snippets.",
+        }
+
+    if any(term in lower for term in ["github", "stars", "forks", "release", "commit", "repo", "repository", "仓库", "星标"]):
+        return {
+            **strategy,
+            "source_kind": "source_repository_metadata",
+            "authority_target": "source host API",
+            "execution_method": "github_api_or_source_host_api",
+            "locator_hints": ["GitHub API", "repository full name"],
+            "adapter_status": "implemented:github_api_when_repo_resolved",
+            "rationale": "Repository metadata belongs to the source host API.",
+        }
+
+    if any(term in lower for term in ["download", "downloads", "npm", "pypi", "package", "包下载"]):
+        return {
+            **strategy,
+            "source_kind": "package_registry_metadata",
+            "authority_target": "npm/PyPI/package registry API",
+            "execution_method": "registry_api_lookup",
+            "locator_hints": ["npm registry", "PyPI JSON API", "package name"],
+            "adapter_status": "implemented:npm_pypi_for_resolved_packages",
+            "rationale": "Package versions/downloads should be checked against package registries.",
+        }
+
+    if any(term in lower for term in ["benchmark", "humaneval", "mbpp", "评测", "基准", "paper", "arxiv", "论文"]):
+        return {
+            **strategy,
+            "source_kind": "benchmark_or_research_evidence",
+            "authority_target": "official benchmark table, model card, paper, or leaderboard",
+            "execution_method": "official_model_card_or_academic_index_lookup",
+            "locator_hints": ["model card", "official technical report", "arXiv/Semantic Scholar", "leaderboard"],
+            "adapter_status": "generic_web_or_academic_adapter_required",
+            "rationale": "Benchmark claims need benchmark tables or papers, not broad web summaries.",
+        }
+
+    if claim_type in {"FEATURE", "COMPAT", "STATUS", "REQUIREMENT"}:
+        strategy.update({
+            "source_kind": "official_docs_or_source_repo",
+            "authority_target": "official docs, README, source repository, changelog",
+            "execution_method": "official_docs_fetch_or_repo_readme_fetch",
+            "locator_hints": [subject, "official docs", "README", "changelog"],
+            "adapter_status": "generic_official_doc_locator_required",
+            "rationale": "Capability/status claims should be verified against official docs or source repos.",
+        })
+    return strategy
+
+
 def plan_evidence(claims: list[dict[str, Any]]) -> list[dict[str, Any]]:
     plans = []
     for claim in claims:
-        claim_type = claim.get("claim_type")
-        text = claim.get("claim_text", "")
+        strategy = infer_verification_strategy(claim)
+        source_kind = strategy["source_kind"]
         if claim.get("verifiability") == "local":
             sources = ["local_files", "human_review"]
         elif claim.get("verifiability") == "not_publicly_verifiable":
             sources = ["human_review", "local_context"]
-        elif claim_type == "NUMBER" and "github" in text.lower():
-            sources = ["github_api", "source_repo"]
-        elif claim_type in {"FEATURE", "COMPAT", "STATUS"}:
+        elif source_kind in {"source_repository_metadata", "source_repository_statistic", "package_index_plus_upstream_repo_crawl"}:
+            sources = ["source_repo", "github_api", "official_docs"]
+        elif source_kind == "vendor_product_specs":
+            sources = ["official_docs", "vendor_product_page", "canonical_reference"]
+        elif source_kind == "package_registry_metadata":
+            sources = ["package_registry", "official_docs", "canonical_reference"]
+        elif source_kind == "benchmark_or_research_evidence":
+            sources = ["benchmark_evidence", "official_docs", "academic_index"]
+        elif source_kind == "official_docs_or_source_repo":
             sources = ["official_docs", "source_repo", "benchmark_evidence"]
         else:
             sources = ["canonical_reference", "official_docs", "benchmark_evidence"]
-        plans.append({"claim_id": claim["claim_id"], "preferred_sources": sources, "queries": [text]})
+        plans.append({
+            "claim_id": claim["claim_id"],
+            "preferred_sources": sources,
+            "queries": strategy["queries"],
+            "source_kind": strategy["source_kind"],
+            "authority_target": strategy["authority_target"],
+            "execution_method": strategy["execution_method"],
+            "locator_hints": strategy["locator_hints"],
+            "adapter_status": strategy["adapter_status"],
+            "rationale": strategy["rationale"],
+        })
     return plans
 
 

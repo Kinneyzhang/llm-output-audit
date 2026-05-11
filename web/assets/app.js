@@ -38,6 +38,7 @@ function resetUi() {
   $('#summaryCards').innerHTML = '';
   $('#suggestions').innerHTML = '';
   $('#claimsList').innerHTML = '';
+  $('#planList').innerHTML = '';
   $('#evidenceList').innerHTML = '';
   $('#originalOut').textContent = '';
   $('#revisedOut').textContent = '';
@@ -96,6 +97,19 @@ function renderClaims() {
   }).join('') : '<p>还没有 claims。</p>';
 }
 
+function renderPlan() {
+  const plans = state.artifacts.plan || [];
+  $('#planList').innerHTML = plans.length ? plans.map(p => `
+    <div class="item">
+      <div class="item-title"><span class="badge">${escapeHtml(p.source_kind || 'source')}</span>${escapeHtml(p.claim_id || '')} · ${escapeHtml(p.execution_method || '')}</div>
+      <div class="item-meta">authority: ${escapeHtml(p.authority_target || '')} · adapter: ${escapeHtml(p.adapter_status || '')}</div>
+      <p>${escapeHtml(p.rationale || '')}</p>
+      <div class="item-meta">locator: ${escapeHtml((p.locator_hints || []).join(' / '))}</div>
+      <div class="item-meta">query: ${escapeHtml((p.queries || []).join(' | '))}</div>
+    </div>
+  `).join('') : '<p>还没有 verification plan。</p>';
+}
+
 function renderEvidence() {
   const evidence = state.artifacts.evidence || [];
   $('#evidenceList').innerHTML = evidence.length ? evidence.map(e => `
@@ -116,6 +130,7 @@ function renderRevision() {
 function renderAll() {
   renderSummary();
   renderClaims();
+  renderPlan();
   renderEvidence();
   renderRevision();
 }
